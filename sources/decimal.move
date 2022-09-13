@@ -80,23 +80,23 @@ module suilend::decimal {
         a.value < b.value
     }
     
-    // round to 3 decimal places
+    // round to 6 decimal places
     // eg rounded(decimal::from_pct(5)) == 50
     public fun rounded(d: Decimal): u64 {
-        (d.value / CLOSENESS_THRESHOLD as u64)
+        (d.value / 1000000000 as u64)
     }
     
-    // 10^12
-    const CLOSENESS_THRESHOLD: u128 = 1000000000000;
+    // 10^13
+    const CLOSENESS_THRESHOLD: u128 = 10000000000000;
 
-    // checks if the actual value is within 0.001 of expected
+    // checks if the actual value is within 0.01 of expected
     // FIXME: jank. probably should support a mix of absolute and relative errors
     public fun is_close(actual: Decimal, expected: Decimal): bool {
         if (gt(expected, actual)) {
-            (expected.value - actual.value) < CLOSENESS_THRESHOLD
+            (expected.value - actual.value) <= CLOSENESS_THRESHOLD
         }
         else {
-            (actual.value - expected.value) < CLOSENESS_THRESHOLD
+            (actual.value - expected.value) <= CLOSENESS_THRESHOLD
         }
     }
 }
@@ -135,7 +135,7 @@ module suilend::decimal_tests {
         };
         
         {
-            assert!(decimal::rounded(decimal::from_percent(5)) == 50, 0);
+            assert!(decimal::rounded(decimal::from_percent(5)) == 50000, 0);
         }
     }
     

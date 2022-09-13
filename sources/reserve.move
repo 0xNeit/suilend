@@ -129,6 +129,21 @@ module suilend::reserve {
         balance::split<T>(&mut reserve.available_liquidity, amount)
     }
     
+    public fun redeem_ctokens_for_liquidity<T>(reserve: &mut Reserve<T>, cur_time: u64, ctokens: Balance<CToken<T>>): Balance<T> {
+        compound_debt_and_interest(reserve, cur_time);
+        
+        let exchange_rate = ctoken_exchange_rate<T>(reserve);
+
+        // redeem ctokens at the exchange rate
+        let liquidity_amount = decimal::to_u64(mul(
+            decimal::from(balance::value(&ctokens)),
+            exchange_rate
+        ));
+
+        balance::decrease_supply(&mut reserve.ctoken_supply, ctokens);
+        balance::split<T>(&mut reserve.available_liquidity, liquidity_amount)
+    }
+    
     #[test]
     fun test_create_reserve(): Reserve<SUI> {
 
@@ -188,6 +203,23 @@ module suilend::reserve {
             assert!(decimal::is_close(reserve.borrowed_liquidity, decimal::from(11)), 0);
 
             balance::destroy_for_testing(ctoken_balance);
+        };
+        
+        // withdraw again 1 year after the deposit
+        {
+            let ctoken_balance = balance::create_for_testing<CToken<SUI>>(100);
+            let liquidity_amount = redeem_ctokens_for_liquidity(&mut reserve, start_time + 2 * SECONDS_IN_YEAR, ctoken_balance);
+            
+            // borrowed liquidity should be 10 * 1.1 * (1 + 0.055/ seconds_per_year) * seconds_per_year ~= 116.
+            assert!(
+                decimal::is_close(reserve.borrowed_liquidity, decimal::from_percent(1160)), 
+                decimal::rounded(reserve.borrowed_liquidity));
+
+            // => ctoken ratio should be (12.1 + 190) / (100 + 99) => 1.015578
+            // => redeemed liquidity amount should be 100 * 1.015578 ~= 101.5578 = 101 bc we floor
+            assert!(balance::value(&liquidity_amount) == 101, 0);
+
+            balance::destroy_for_testing(liquidity_amount);
         };
         
 
