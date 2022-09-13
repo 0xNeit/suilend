@@ -1,6 +1,6 @@
-/// Defines a fixed-point decimal type with up to 18 digits of decimal precision.
+/// Defines a fixed-point decimal type with up to 15 digits of decimal precision.
 /// This type will overflow at about 10^20.
-/// FIXME: I should use a u192 or only keep 15 digits of precision. This is fine for a prototype
+/// FIXME: I should use a u192. This is fine for a prototype
 /// but will definitely have to be fixed before production.
 
 module suilend::decimal {
@@ -8,8 +8,9 @@ module suilend::decimal {
         value: u128
     }
     
-    // 10^18
-    const WAD: u128 = 1000000000000000000;
+    // 10^15
+    const WAD: u128 = 1000000000000000;
+    
     
     public fun zero(): Decimal {
         from(0)
@@ -23,6 +24,20 @@ module suilend::decimal {
         Decimal {
             value: (v as u128) * WAD
         }
+    }
+    
+    public fun from_percent(pct: u64): Decimal {
+        div(
+            from(pct),
+            from(100)
+        )
+    }
+
+    public fun from_bps(pct: u64): Decimal {
+        div(
+            from(pct),
+            from(10000)
+        )
     }
     
     // FIXME: this is wrong. need a floor, ceil function instead of this.
@@ -54,6 +69,34 @@ module suilend::decimal {
     public fun div(a: Decimal, b: Decimal): Decimal {
         Decimal {
             value: a.value * WAD / b.value
+        }
+    }
+    
+    public fun gt(a: Decimal, b: Decimal): bool {
+        a.value > b.value
+    }
+
+    public fun lt(a: Decimal, b: Decimal): bool {
+        a.value < b.value
+    }
+    
+    // round to 3 decimal places
+    // eg rounded(decimal::from_pct(5)) == 50
+    public fun rounded(d: Decimal): u64 {
+        (d.value / CLOSENESS_THRESHOLD as u64)
+    }
+    
+    // 10^12
+    const CLOSENESS_THRESHOLD: u128 = 1000000000000;
+
+    // checks if the actual value is within 0.001 of expected
+    // FIXME: jank. probably should support a mix of absolute and relative errors
+    public fun is_close(actual: Decimal, expected: Decimal): bool {
+        if (gt(expected, actual)) {
+            (expected.value - actual.value) < CLOSENESS_THRESHOLD
+        }
+        else {
+            (actual.value - expected.value) < CLOSENESS_THRESHOLD
         }
     }
 }
@@ -90,6 +133,10 @@ module suilend::decimal_tests {
             let quotient = decimal::to_u64(quotient_decimal);
             assert!(quotient == 4, 0);
         };
+        
+        {
+            assert!(decimal::rounded(decimal::from_percent(5)) == 50, 0);
+        }
     }
     
 }

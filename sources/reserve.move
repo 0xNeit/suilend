@@ -1,6 +1,6 @@
 module suilend::reserve {
     use sui::balance::{Self, Balance, Supply};
-    use suilend::decimal::{Decimal, Self};
+    use suilend::decimal::{Decimal, Self, add, mul, div};
     use suilend::interest_rate::{InterestRate, Self};
 
     #[test_only]
@@ -51,21 +51,21 @@ module suilend::reserve {
             return decimal::one()
         };
         
-        decimal::div(
-            decimal::add(available_liquidity, reserve.borrowed_liquidity),
+        div(
+            add(available_liquidity, reserve.borrowed_liquidity),
             ctoken_total_supply
         )
     }
     
     public fun borrow_utilization<T>(reserve: &Reserve<T>): Decimal {
         let available_liquidity = decimal::from(balance::value<T>(&reserve.available_liquidity));
-        let denom = decimal::add(reserve.borrowed_liquidity, available_liquidity);
+        let denom = add(reserve.borrowed_liquidity, available_liquidity);
 
         if (denom == decimal::zero()) {
             return decimal::zero()
         };
 
-        decimal::div(
+        div(
             reserve.borrowed_liquidity,
             denom
         )
@@ -75,6 +75,10 @@ module suilend::reserve {
         assert!(reserve.last_update <= cur_time, EInvalidTime);
         
         let diff = cur_time - reserve.last_update;
+        if (diff == 0) {
+            return
+        };
+
         let apr = interest_rate::calculate_apr(reserve.interest_rate, borrow_utilization<T>(reserve));
         
         // we compound interest every second.
@@ -88,17 +92,18 @@ module suilend::reserve {
         // by using (1 + apr * (t_n - t_o) / seconds_in_year). This should be good enough as long as 
         // interest is compounded at least once a day.
         // https://docs.youves.com/syntheticAssets/stableTokens/incentiveFeatures/interestRates/Interest-Rate-Calculation/#n-period-case
-        let additional_interest = decimal::mul(
-            decimal::add(
-                decimal::one(),
-                decimal::div(apr, decimal::from(SECONDS_IN_YEAR))
-            ), 
-            decimal::from(diff)
+        let additional_interest = add(
+            decimal::one(),
+            mul(
+                apr,
+                div(decimal::from(diff), decimal::from(SECONDS_IN_YEAR))
+            )
         );
 
         // update variables
-        reserve.borrowed_liquidity = decimal::mul(reserve.borrowed_liquidity, additional_interest);
-        reserve.cumulative_borrow_rate = decimal::mul(reserve.cumulative_borrow_rate, additional_interest);
+        reserve.borrowed_liquidity = mul(reserve.borrowed_liquidity, additional_interest);
+        reserve.cumulative_borrow_rate = mul(reserve.cumulative_borrow_rate, additional_interest);
+        reserve.last_update = cur_time;
     }
     
     // adds liquidity to reserve's supply and creates new ctokens. returns a balance.
@@ -108,28 +113,22 @@ module suilend::reserve {
         let exchange_rate = ctoken_exchange_rate<T>(reserve);
 
         // mint ctokens at the exchange rate
-        let ctoken_mint_amount = decimal::to_u64(decimal::div(
+        let ctoken_mint_amount = decimal::to_u64(div(
             decimal::from(balance::value<T>(&liquidity)),
             exchange_rate
         ));
-        
 
-        // add liquidity
         balance::join<T>(&mut reserve.available_liquidity, liquidity);
-        
         balance::increase_supply<CToken<T>>(&mut reserve.ctoken_supply, ctoken_mint_amount)
     }
     
     public fun borrow_liquidity<T>(reserve: &mut Reserve<T>, cur_time: u64, amount: u64): Balance<T> {
         compound_debt_and_interest(reserve, cur_time);
         
-        reserve.borrowed_liquidity = decimal::add(reserve.borrowed_liquidity, decimal::from(amount));
+        reserve.borrowed_liquidity = add(reserve.borrowed_liquidity, decimal::from(amount));
         balance::split<T>(&mut reserve.available_liquidity, amount)
     }
     
-    
-    use std::debug::{Self};
-
     #[test]
     fun test_create_reserve(): Reserve<SUI> {
 
@@ -141,7 +140,6 @@ module suilend::reserve {
         assert!(ctoken_exchange_rate(&reserve) == decimal::one(), 1);
         assert!(borrow_utilization(&reserve) == decimal::zero(), 2);
         
-
         // deposit liquidity
         {
             let sui = balance::create_for_testing<SUI>(100);
@@ -149,6 +147,7 @@ module suilend::reserve {
 
             // there's no debt to compound yet, so the ctoken exchange rate should be 1
             assert!(balance::value(&ctoken_balance) == 100, 3);
+            assert!(balance::supply_value(&reserve.ctoken_supply) == 100, 3);
             balance::destroy_for_testing(ctoken_balance);
         };
         
@@ -160,7 +159,7 @@ module suilend::reserve {
             assert!(reserve.borrowed_liquidity == decimal::from(10), 5);
             assert!(balance::value(&reserve.available_liquidity) == 90, 6);
             
-            let expected_util = decimal::div(decimal::from(10), decimal::from(100));
+            let expected_util = div(decimal::from(10), decimal::from(100));
             assert!(borrow_utilization(&reserve) == expected_util, 7);
             assert!(ctoken_exchange_rate(&reserve) == decimal::one(), 8);
 
@@ -178,9 +177,16 @@ module suilend::reserve {
             // => cumulative_borrow_rate should be 1.1
             // => ctoken ratio should be (11 + 90) / (100) = 1.01
 
-            debug::print<Balance<CToken<SUI>>>(&ctoken_balance);
+            assert!(balance::value(&ctoken_balance) == 99, balance::value(&ctoken_balance));
 
-            assert!(balance::value(&ctoken_balance) == 100, 3);
+            let exchange_rate = ctoken_exchange_rate(&reserve);
+            assert!(decimal::is_close(exchange_rate, decimal::from_percent(101)), 0);
+
+            // 11 / 200 = 5.5% => 550bps
+            let borrow_util = borrow_utilization(&reserve);
+            assert!(decimal::is_close(borrow_util, decimal::from_bps(550)), decimal::rounded(borrow_util));
+            assert!(decimal::is_close(reserve.borrowed_liquidity, decimal::from(11)), 0);
+
             balance::destroy_for_testing(ctoken_balance);
         };
         
@@ -188,16 +194,4 @@ module suilend::reserve {
         
         reserve
     }
-
-    /* #[test] */
-    /* fun test_c(): Reserve<SUI> { */
-    /*     let start_time = 1; */
-        
-    /*     let reserve = create_reserve<SUI>(start_time); */
-    /*     assert!(reserve.last_update == 1, 0); */
-        
-    /*     reserve */
-    /* } */
-    
-    
 }
