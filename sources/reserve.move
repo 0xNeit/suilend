@@ -34,18 +34,18 @@ module suilend::reserve {
 
         Reserve {
             last_update: cur_time,
-            available_liquidity: balance::zero<T>(),
+            available_liquidity: balance::zero(),
             borrowed_liquidity: decimal::zero(),
             cumulative_borrow_rate: decimal::one(),
-            ctoken_supply: balance::create_supply<CToken<T>>(CToken<T> {}),
+            ctoken_supply: balance::create_supply(CToken<T> {}),
             interest_rate: interest_rate,
         }
     }
     
     // computes ctoken / token
     public fun ctoken_exchange_rate<T>(reserve: &Reserve<T>): Decimal {
-        let available_liquidity = decimal::from(balance::value<T>(&reserve.available_liquidity));
-        let ctoken_total_supply = decimal::from(balance::supply_value<CToken<T>>(&reserve.ctoken_supply));
+        let available_liquidity = decimal::from(balance::value(&reserve.available_liquidity));
+        let ctoken_total_supply = decimal::from(balance::supply_value(&reserve.ctoken_supply));
         
         if (available_liquidity == decimal::zero() && ctoken_total_supply == decimal::zero()) {
             return decimal::one()
@@ -58,7 +58,7 @@ module suilend::reserve {
     }
     
     public fun borrow_utilization<T>(reserve: &Reserve<T>): Decimal {
-        let available_liquidity = decimal::from(balance::value<T>(&reserve.available_liquidity));
+        let available_liquidity = decimal::from(balance::value(&reserve.available_liquidity));
         let denom = add(reserve.borrowed_liquidity, available_liquidity);
 
         if (denom == decimal::zero()) {
@@ -79,7 +79,7 @@ module suilend::reserve {
             return
         };
 
-        let apr = interest_rate::calculate_apr(reserve.interest_rate, borrow_utilization<T>(reserve));
+        let apr = interest_rate::calculate_apr(reserve.interest_rate, borrow_utilization(reserve));
         
         // we compound interest every second.
         // formula: I(t_n) = I(t_o) * (1 + apr / seconds_in_year) ^ (t_n - t_o)
@@ -110,29 +110,29 @@ module suilend::reserve {
     public fun deposit_liquidity_and_mint_ctokens<T>(reserve: &mut Reserve<T>, cur_time: u64, liquidity: Balance<T>): Balance<CToken<T>> {
         compound_debt_and_interest(reserve, cur_time);
 
-        let exchange_rate = ctoken_exchange_rate<T>(reserve);
+        let exchange_rate = ctoken_exchange_rate(reserve);
 
         // mint ctokens at the exchange rate
         let ctoken_mint_amount = decimal::to_u64(div(
-            decimal::from(balance::value<T>(&liquidity)),
+            decimal::from(balance::value(&liquidity)),
             exchange_rate
         ));
 
-        balance::join<T>(&mut reserve.available_liquidity, liquidity);
-        balance::increase_supply<CToken<T>>(&mut reserve.ctoken_supply, ctoken_mint_amount)
+        balance::join(&mut reserve.available_liquidity, liquidity);
+        balance::increase_supply(&mut reserve.ctoken_supply, ctoken_mint_amount)
     }
     
     public fun borrow_liquidity<T>(reserve: &mut Reserve<T>, cur_time: u64, amount: u64): Balance<T> {
         compound_debt_and_interest(reserve, cur_time);
         
         reserve.borrowed_liquidity = add(reserve.borrowed_liquidity, decimal::from(amount));
-        balance::split<T>(&mut reserve.available_liquidity, amount)
+        balance::split(&mut reserve.available_liquidity, amount)
     }
     
     public fun redeem_ctokens_for_liquidity<T>(reserve: &mut Reserve<T>, cur_time: u64, ctokens: Balance<CToken<T>>): Balance<T> {
         compound_debt_and_interest(reserve, cur_time);
         
-        let exchange_rate = ctoken_exchange_rate<T>(reserve);
+        let exchange_rate = ctoken_exchange_rate(reserve);
 
         // redeem ctokens at the exchange rate
         let liquidity_amount = decimal::to_u64(mul(
@@ -141,7 +141,7 @@ module suilend::reserve {
         ));
 
         balance::decrease_supply(&mut reserve.ctoken_supply, ctokens);
-        balance::split<T>(&mut reserve.available_liquidity, liquidity_amount)
+        balance::split(&mut reserve.available_liquidity, liquidity_amount)
     }
     
     #[test]
@@ -221,8 +221,6 @@ module suilend::reserve {
 
             balance::destroy_for_testing(liquidity_amount);
         };
-        
-
         
         reserve
     }
