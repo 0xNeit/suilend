@@ -22,6 +22,10 @@ module suilend::reserve {
         interest_rate: InterestRate,
     }
     
+    spec Reserve {
+        invariant decimal::raw_val(cumulative_borrow_rate) >= decimal::WAD;
+    }
+    
     // errors
     const EInvalidTime: u64 = 0;
     
@@ -70,6 +74,11 @@ module suilend::reserve {
             denom
         )
     }
+    
+    spec borrow_utilization {
+        // <= 100%
+        ensures decimal::raw_val(result) <= decimal::WAD;
+    }
 
     public fun compound_debt_and_interest<T>(reserve: &mut Reserve<T>, cur_time: u64) {
         assert!(reserve.last_update <= cur_time, EInvalidTime);
@@ -106,6 +115,14 @@ module suilend::reserve {
         reserve.last_update = cur_time;
     }
     
+    spec compound_debt_and_interest {
+        ensures reserve.last_update >= old(reserve.last_update);
+        ensures decimal::ge(reserve.borrowed_liquidity, old(reserve.borrowed_liquidity));
+        ensures decimal::ge(reserve.cumulative_borrow_rate, old(reserve.cumulative_borrow_rate));
+
+        ensures decimal::raw_val(reserve.cumulative_borrow_rate) >= decimal::WAD;
+    }
+    
     // adds liquidity to reserve's supply and creates new ctokens. returns a balance.
     public fun deposit_liquidity_and_mint_ctokens<T>(reserve: &mut Reserve<T>, cur_time: u64, liquidity: Balance<T>): Balance<CToken<T>> {
         compound_debt_and_interest(reserve, cur_time);
@@ -120,6 +137,14 @@ module suilend::reserve {
 
         balance::join(&mut reserve.available_liquidity, liquidity);
         balance::increase_supply(&mut reserve.ctoken_supply, ctoken_mint_amount)
+    }
+    
+    spec deposit_liquidity_and_mint_ctokens {
+        ensures reserve.last_update >= old(reserve.last_update);
+        
+        // TODO invariant: ctoken ratio is >= 1
+        // TODO assert that the ctoken ratio doesn't change by much
+        // TODO assert that ctokens * ctoken_ratio <= liquidity amount
     }
     
     public fun borrow_liquidity<T>(reserve: &mut Reserve<T>, cur_time: u64, amount: u64): Balance<T> {

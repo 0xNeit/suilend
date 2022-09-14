@@ -19,7 +19,7 @@ module suilend::decimal {
     public fun one(): Decimal {
         from(1)
     }
-
+    
     public fun from(v: u64): Decimal {
         Decimal {
             value: (v as u128) * WAD
@@ -76,6 +76,10 @@ module suilend::decimal {
         a.value > b.value
     }
 
+    public fun ge(a: Decimal, b: Decimal): bool {
+        a.value >= b.value
+    }
+
     public fun lt(a: Decimal, b: Decimal): bool {
         a.value < b.value
     }
@@ -84,6 +88,10 @@ module suilend::decimal {
     // eg rounded(decimal::from_pct(5)) == 50
     public fun rounded(d: Decimal): u64 {
         (d.value / 1000000000 as u64)
+    }
+    
+    public fun raw_val(d: Decimal): u128 {
+        d.value
     }
     
     // 10^13
