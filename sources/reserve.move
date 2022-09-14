@@ -3,12 +3,10 @@ module suilend::reserve {
     use suilend::decimal::{Decimal, Self, add, mul, div};
     use suilend::interest_rate::{InterestRate, Self};
 
-    #[test_only]
-    use sui::sui::SUI;
-    
-    struct CToken<phantom T> has drop {}
+    // TODO use lending market type here as well. ctokens need to be unique per lending_market, reserve pair
+    struct CToken<phantom P, phantom T> has drop {}
 
-    struct Reserve<phantom T> has store {
+    struct Reserve<phantom P, phantom T> has store {
         last_update: u64,
         
         available_liquidity: Balance<T>,
@@ -17,7 +15,7 @@ module suilend::reserve {
         borrowed_liquidity: Decimal,
         cumulative_borrow_rate: Decimal,
 
-        ctoken_supply: Supply<CToken<T>>,
+        ctoken_supply: Supply<CToken<P, T>>,
         
         interest_rate: InterestRate,
     }
@@ -32,7 +30,7 @@ module suilend::reserve {
     // constants
     const SECONDS_IN_YEAR: u64 = 60 * 60 * 24 * 365;
     
-    public fun create_reserve<T>(cur_time: u64): Reserve<T> {
+    public fun create_reserve<P, T>(cur_time: u64): Reserve<P, T> {
         // TODO make this a function argument somehow
         let interest_rate = interest_rate::create_interest_rate(decimal::one());
 
@@ -41,13 +39,13 @@ module suilend::reserve {
             available_liquidity: balance::zero(),
             borrowed_liquidity: decimal::zero(),
             cumulative_borrow_rate: decimal::one(),
-            ctoken_supply: balance::create_supply(CToken<T> {}),
+            ctoken_supply: balance::create_supply(CToken<P, T> {}),
             interest_rate: interest_rate,
         }
     }
     
     // computes ctoken / token
-    public fun ctoken_exchange_rate<T>(reserve: &Reserve<T>): Decimal {
+    public fun ctoken_exchange_rate<P, T>(reserve: &Reserve<P, T>): Decimal {
         let available_liquidity = decimal::from(balance::value(&reserve.available_liquidity));
         let ctoken_total_supply = decimal::from(balance::supply_value(&reserve.ctoken_supply));
         
@@ -61,7 +59,7 @@ module suilend::reserve {
         )
     }
     
-    public fun borrow_utilization<T>(reserve: &Reserve<T>): Decimal {
+    public fun borrow_utilization<P, T>(reserve: &Reserve<P, T>): Decimal {
         let available_liquidity = decimal::from(balance::value(&reserve.available_liquidity));
         let denom = add(reserve.borrowed_liquidity, available_liquidity);
 
@@ -80,7 +78,7 @@ module suilend::reserve {
         ensures decimal::raw_val(result) <= decimal::WAD;
     }
 
-    public fun compound_debt_and_interest<T>(reserve: &mut Reserve<T>, cur_time: u64) {
+    public fun compound_debt_and_interest<P, T>(reserve: &mut Reserve<P, T>, cur_time: u64) {
         assert!(reserve.last_update <= cur_time, EInvalidTime);
         
         let diff = cur_time - reserve.last_update;
@@ -124,7 +122,7 @@ module suilend::reserve {
     }
     
     // adds liquidity to reserve's supply and creates new ctokens. returns a balance.
-    public fun deposit_liquidity_and_mint_ctokens<T>(reserve: &mut Reserve<T>, cur_time: u64, liquidity: Balance<T>): Balance<CToken<T>> {
+    public fun deposit_liquidity_and_mint_ctokens<P, T>(reserve: &mut Reserve<P, T>, cur_time: u64, liquidity: Balance<T>): Balance<CToken<P, T>> {
         compound_debt_and_interest(reserve, cur_time);
 
         let exchange_rate = ctoken_exchange_rate(reserve);
@@ -147,14 +145,14 @@ module suilend::reserve {
         // TODO assert that ctokens * ctoken_ratio <= liquidity amount
     }
     
-    public fun borrow_liquidity<T>(reserve: &mut Reserve<T>, cur_time: u64, amount: u64): Balance<T> {
+    public fun borrow_liquidity<P, T>(reserve: &mut Reserve<P, T>, cur_time: u64, amount: u64): Balance<T> {
         compound_debt_and_interest(reserve, cur_time);
         
         reserve.borrowed_liquidity = add(reserve.borrowed_liquidity, decimal::from(amount));
         balance::split(&mut reserve.available_liquidity, amount)
     }
     
-    public fun redeem_ctokens_for_liquidity<T>(reserve: &mut Reserve<T>, cur_time: u64, ctokens: Balance<CToken<T>>): Balance<T> {
+    public fun redeem_ctokens_for_liquidity<P, T>(reserve: &mut Reserve<P, T>, cur_time: u64, ctokens: Balance<CToken<P, T>>): Balance<T> {
         compound_debt_and_interest(reserve, cur_time);
         
         let exchange_rate = ctoken_exchange_rate(reserve);
@@ -169,13 +167,19 @@ module suilend::reserve {
         balance::split(&mut reserve.available_liquidity, liquidity_amount)
     }
     
+    #[test_only]
+    struct POOLEY has drop {}
+    
+    #[test_only]
+    use sui::sui::SUI;
+
     #[test]
-    fun test_create_reserve(): Reserve<SUI> {
+    fun test_create_reserve(): Reserve<POOLEY, SUI> {
 
         let start_time = 1;
         
         // create reserve
-        let reserve = create_reserve<SUI>(start_time);
+        let reserve = create_reserve<POOLEY, SUI>(start_time);
         assert!(reserve.last_update == 1, 0);
         assert!(ctoken_exchange_rate(&reserve) == decimal::one(), 1);
         assert!(borrow_utilization(&reserve) == decimal::zero(), 2);
@@ -232,7 +236,7 @@ module suilend::reserve {
         
         // withdraw again 1 year after the deposit
         {
-            let ctoken_balance = balance::create_for_testing<CToken<SUI>>(100);
+            let ctoken_balance = balance::create_for_testing<CToken<POOLEY, SUI>>(100);
             let liquidity_amount = redeem_ctokens_for_liquidity(&mut reserve, start_time + 2 * SECONDS_IN_YEAR, ctoken_balance);
             
             // borrowed liquidity should be 10 * 1.1 * (1 + 0.055/ seconds_per_year) * seconds_per_year ~= 116.
