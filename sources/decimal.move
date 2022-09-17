@@ -72,6 +72,18 @@ module suilend::decimal {
         }
     }
     
+    // FIXME: use more efficient power function
+    public fun pow(base: Decimal, exp: u64): Decimal {
+        let i = 0;
+        let product = one();
+
+        while (i < exp) {
+            product = mul(product, base);
+        };
+        
+        product
+    }
+    
     public fun gt(a: Decimal, b: Decimal): bool {
         a.value > b.value
     }
@@ -82,6 +94,10 @@ module suilend::decimal {
 
     public fun lt(a: Decimal, b: Decimal): bool {
         a.value < b.value
+    }
+
+    public fun le(a: Decimal, b: Decimal): bool {
+        a.value <= b.value
     }
     
     // round to 6 decimal places

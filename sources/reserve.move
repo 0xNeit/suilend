@@ -3,6 +3,8 @@ module suilend::reserve {
     use suilend::decimal::{Decimal, Self, add, mul, div};
     use suilend::interest_rate::{InterestRate, Self};
 
+    friend suilend::obligation;
+
     // TODO use lending market type here as well. ctokens need to be unique per lending_market, reserve pair
     struct CToken<phantom P, phantom T> has drop {}
 
@@ -71,6 +73,10 @@ module suilend::reserve {
             reserve.borrowed_liquidity,
             denom
         )
+    }
+    
+    public fun cumulative_borrow_rate<P, T>(reserve: &Reserve<P, T>): Decimal {
+        reserve.cumulative_borrow_rate
     }
     
     spec borrow_utilization {
@@ -145,7 +151,8 @@ module suilend::reserve {
         // TODO assert that ctokens * ctoken_ratio <= liquidity amount
     }
     
-    public fun borrow_liquidity<P, T>(reserve: &mut Reserve<P, T>, cur_time: u64, amount: u64): Balance<T> {
+    // TODO make sure only obligation can use this function
+    public(friend) fun borrow_liquidity<P, T>(reserve: &mut Reserve<P, T>, cur_time: u64, amount: u64): Balance<T> {
         compound_debt_and_interest(reserve, cur_time);
         
         reserve.borrowed_liquidity = add(reserve.borrowed_liquidity, decimal::from(amount));

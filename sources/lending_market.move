@@ -76,6 +76,8 @@ module suilend::lending_market {
 
     // deposit reserve liquidity
     public entry fun deposit_reserve_liquidity<P, T>(lending_market: &mut LendingMarket<P>, reserve_info: &mut ReserveInfo<P, T>, deposit: Coin<T>, ctx: &mut TxContext) {
+        // TODO. do i even need this check? the reserve and lending market have to be related bc 
+        // of the type constraints.
         assert!(reserve_info.lending_market == object::id(lending_market), EInvalidReserve);
 
         let balance = coin::into_balance(deposit);
@@ -89,6 +91,10 @@ module suilend::lending_market {
         let ctokens = coin::from_balance(ctoken_balance, ctx);
 
         transfer::transfer(ctokens, tx_context::sender(ctx));
+    }
+    
+    public fun time<P>(lending_market: &LendingMarket<P>): u64 {
+        lending_market.cur_time
     }
     
     #[test_only]
