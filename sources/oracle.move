@@ -4,7 +4,7 @@
 module suilend::oracle {
     use suilend::decimal::{Self, Decimal, div, mul, pow};
     use sui::object::{Self, ID, UID};
-    use suilend::time::{Self, Time, TimeInfo};
+    use suilend::time::{Self, Time};
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
 
@@ -29,13 +29,13 @@ module suilend::oracle {
         // eg SOL has 9 decimals
         decimals: u64,
 
-        last_update: Time,
+        last_update_s: u64,
     }
 
     const EUnauthorized: u64 = 0;
     const EInvalidTime: u64 = 1;
 
-    public entry fun new_price_cache(time: &TimeInfo, ctx: &mut TxContext) {
+    public entry fun new_price_cache(time: &Time, ctx: &mut TxContext) {
         let price_cache = PriceCache {
             id: object::new(ctx),
             owner: tx_context::sender(ctx),
@@ -47,14 +47,14 @@ module suilend::oracle {
 
     public entry fun add_price_info<T>(
         price_cache: &mut PriceCache,
-        time_info: &TimeInfo, 
+        time: &Time, 
         base: u64, 
         exp: u64, 
         decimals: u64,
         ctx: &mut TxContext
     ) {
         assert!(tx_context::sender(ctx) == price_cache.owner, EUnauthorized);
-        assert!(price_cache.time_id == object::id(time_info), EInvalidTime);
+        assert!(price_cache.time_id == object::id(time), EInvalidTime);
 
         let price_info = PriceInfo<T> {
             id: object::new(ctx),
@@ -62,18 +62,14 @@ module suilend::oracle {
             base,
             exp,
             decimals,
-            last_update: time::get(time_info),
+            last_update_s: time::get_epoch_s(time),
         };
         
         transfer::share_object(price_info);
     }
 
-    public fun last_update<T>(price_info: &PriceInfo<T>): &Time {
-        &price_info.last_update
-    }
-
     public fun last_update_s<T>(price_info: &PriceInfo<T>): u64 {
-        time::get_epoch_s(price_info.last_update)
+        price_info.last_update_s
     }
 
     public fun price<T>(price_info: &PriceInfo<T>): Decimal {

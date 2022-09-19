@@ -10,8 +10,8 @@ module suilend::obligation {
     use sui::vec_set::{Self, VecSet};
     use sui::tx_context::{TxContext};
     use suilend::price::{Self, PriceInfo};
-    use suilend::lending_market::{Self, LendingMarket};
     use suilend::reserve::{Self, Reserve, CToken};
+    use suilend::time::{Self, Time};
 
     use sui::transfer;
 
@@ -171,7 +171,7 @@ module suilend::obligation {
     public fun update_stats_borrow<P, T>(
         obligation: &mut Obligation<P>, 
         borrow_info: &mut BorrowInfo<T>, 
-        lending_market: &LendingMarket<P>,
+        time: &Time,
         reserve: &Reserve<P, T>,
         price_info: &PriceInfo<T>
     ) {
@@ -180,7 +180,7 @@ module suilend::obligation {
             EBorrowAlreadyHandled
         );
         assert!(
-            price::last_update(price_info) >= lending_market::time(lending_market) - PRICE_STALENESS_THRESHOLD_S, 
+            price::last_update(price_info) >= time::get_epoch_s(time) - PRICE_STALENESS_THRESHOLD_S, 
             EPriceTooStale
         ); 
         assert!(obligation.stats.seqnum == obligation.seqnum, ESeqnumIsStale);
@@ -220,7 +220,7 @@ module suilend::obligation {
     public fun update_stats_deposit<P, T>(
         obligation: &mut Obligation<P>, 
         deposit_info: &mut DepositInfo<CToken<P, T>>, 
-        lending_market: &LendingMarket<P>,
+        time: &Time,
         reserve: &Reserve<P, T>,
         price_info: &PriceInfo<T>
     ) {
@@ -229,7 +229,7 @@ module suilend::obligation {
             EDepositAlreadyHandled
         );
         assert!(
-            price::last_update(price_info) >= lending_market::time(lending_market) - PRICE_STALENESS_THRESHOLD_S, 
+            price::last_update(price_info) >= time::get_epoch_s(time) - PRICE_STALENESS_THRESHOLD_S, 
             EPriceTooStale
         ); 
         assert!(obligation.stats.seqnum == obligation.seqnum, ESeqnumIsStale);
