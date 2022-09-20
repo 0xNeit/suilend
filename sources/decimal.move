@@ -61,8 +61,17 @@ module suilend::decimal {
     }
 
     public fun mul(a: Decimal, b: Decimal): Decimal {
-        Decimal {
-            value: a.value * b.value / WAD
+        // jank lyfe pt 100. idek what the precision of this will be, but
+        // im going to re-write this entire module anyways.
+        if (a.value > 1000 * WAD || b.value > 1000 * WAD) {
+            Decimal {
+                value: a.value / WAD * b.value
+            }
+        }
+        else {
+            Decimal {
+                value: a.value * b.value / WAD
+            }
         }
     }
 
@@ -79,6 +88,7 @@ module suilend::decimal {
 
         while (i < exp) {
             product = mul(product, base);
+            i = i + 1;
         };
         
         product
@@ -156,6 +166,21 @@ module suilend::decimal_tests {
             let quotient_decimal = decimal::div(a, b);
             let quotient = decimal::to_u64(quotient_decimal);
             assert!(quotient == 4, 0);
+        };
+        
+        {
+            let res = decimal::pow(a, 3);
+            assert!(decimal::to_u64(res) == 1728, decimal::to_u64(res));
+        };
+
+        {
+            let res = decimal::pow(a, 0);
+            assert!(decimal::to_u64(res) == 1, decimal::to_u64(res));
+        };
+        
+        {
+            let res = decimal::pow(decimal::from(10), 9);
+            assert!(decimal::to_u64(res) == 1000000000, decimal::to_u64(res));
         };
         
         {

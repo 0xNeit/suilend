@@ -176,7 +176,7 @@ module suilend::lending_market {
             obligation,
             deposit_info,
             time, 
-            &reserve_info.reserve,
+            &mut reserve_info.reserve,
             price_info
         );
     }

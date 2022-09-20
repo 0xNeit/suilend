@@ -192,7 +192,7 @@ module suilend::obligation {
             EBorrowAlreadyHandled
         );
         assert!(
-            oracle::last_update_s(price_info) >= time::get_epoch_s(time) - PRICE_STALENESS_THRESHOLD_S, 
+            oracle::last_update_s(price_info) + PRICE_STALENESS_THRESHOLD_S >= time::get_epoch_s(time),
             EPriceTooStale
         ); 
         assert!(obligation.stats.seqnum == obligation.seqnum, ESeqnumIsStale);
@@ -234,7 +234,7 @@ module suilend::obligation {
         obligation: &mut Obligation<P>, 
         deposit_info: &mut DepositInfo<CToken<P, T>>, 
         time: &Time,
-        reserve: &Reserve<P, T>,
+        reserve: &mut Reserve<P, T>,
         price_info: &PriceInfo<T>
     ) {
         assert!(
@@ -242,13 +242,16 @@ module suilend::obligation {
             EDepositAlreadyHandled
         );
         assert!(
-            oracle::last_update_s(price_info) >= time::get_epoch_s(time) - PRICE_STALENESS_THRESHOLD_S, 
+            oracle::last_update_s(price_info) + PRICE_STALENESS_THRESHOLD_S >= time::get_epoch_s(time),
             EPriceTooStale
         ); 
         assert!(obligation.stats.seqnum == obligation.seqnum, ESeqnumIsStale);
-        // TODO refresh reserve
+        
+        reserve::compound_debt_and_interest(reserve, time::get_epoch_s(time));
+
         
         let ctoken_ratio = reserve::ctoken_exchange_rate<P, T>(reserve);
+
         let ctokens = decimal::from(balance::value(&deposit_info.balance));
 
         // FIXME: make sure this floors

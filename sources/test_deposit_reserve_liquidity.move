@@ -8,11 +8,7 @@ module suilend::test_deposit_reserve_liquidity {
         Self,
         LendingMarket, 
         AdminCap, 
-        ReserveInfo,
-        create_lending_market,
-        add_reserve,
-        deposit_reserve_liquidity,
-        create_obligation,
+        ReserveInfo
     };
     use suilend::obligation::{
         Obligation,
@@ -23,7 +19,7 @@ module suilend::test_deposit_reserve_liquidity {
 
     struct POOLEY has drop {}
     
-    
+    // various helper functions to abstract away all the object taking and returning
     fun update_time(scenario: &mut Scenario, owner: address, new_time: u64) {
         test_scenario::next_tx(scenario, &owner);
         {
@@ -97,17 +93,88 @@ module suilend::test_deposit_reserve_liquidity {
         }
     }
 
-    #[test]
-    fun lending_market_create_reserve() {
-        let owner = @0x26;
-        let rando_1 = @0x27;
-        /* let rando_2 = @0x28; */
-        let start_time = 1;
-        
-        let scenario = &mut test_scenario::begin(&owner);
-        
-        time::new(start_time, test_scenario::ctx(scenario));
-        
+   fun reset_stats<P>(
+        scenario: &mut Scenario,
+        obligation_owner: address
+    ) {
+        test_scenario::next_tx(scenario, &obligation_owner);
+        {
+            let time_wrapper = test_scenario::take_shared<Time>(scenario);
+            let time = test_scenario::borrow_mut(&mut time_wrapper);
+
+            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
+
+            let obligation = test_scenario::take_child_object<LendingMarket<P>, Obligation<P>>(
+                scenario, lending_market);
+
+            lending_market::reset_stats(
+                lending_market,
+                &mut obligation,
+                time,
+                test_scenario::ctx(scenario)
+            );
+
+
+            test_scenario::return_owned(scenario, obligation);
+            test_scenario::return_shared(scenario, time_wrapper);
+            test_scenario::return_shared(scenario, lending_market_wrapper);
+        };
+    }
+     
+    fun update_stats_deposit<P, T>(
+        scenario: &mut Scenario,
+        obligation_owner: address
+    ) {
+        test_scenario::next_tx(scenario, &obligation_owner);
+        {
+            let time_wrapper = test_scenario::take_shared<Time>(scenario);
+            let time = test_scenario::borrow_mut(&mut time_wrapper);
+
+            let price_cache_wrapper = test_scenario::take_shared<PriceCache>(scenario);
+            let price_cache = test_scenario::borrow_mut(&mut price_cache_wrapper);
+
+            let price_info = test_scenario::take_child_object<
+                PriceCache, 
+                PriceInfo<T>>(scenario, price_cache);
+
+            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
+
+            let reserve_info = test_scenario::take_child_object<LendingMarket<P>, ReserveInfo<P, T>>(
+                scenario, lending_market);
+
+            let obligation = test_scenario::take_child_object<LendingMarket<P>, Obligation<P>>(
+                scenario, lending_market);
+
+            let deposit_info = test_scenario::take_child_object<
+                Obligation<P>, 
+                DepositInfo<CToken<P, T>>>(scenario, &mut obligation);
+            
+            lending_market::update_stats_deposit(
+                lending_market,
+                &mut reserve_info,
+                &mut obligation,
+                &mut deposit_info,
+                time,
+                &price_info,
+                test_scenario::ctx(scenario)
+            );
+
+
+            test_scenario::return_owned(scenario, deposit_info);
+            test_scenario::return_owned(scenario, obligation);
+
+            test_scenario::return_owned(scenario, price_info);
+            test_scenario::return_shared(scenario, price_cache_wrapper);
+
+            test_scenario::return_owned(scenario, reserve_info);
+            test_scenario::return_shared(scenario, time_wrapper);
+            test_scenario::return_shared(scenario, lending_market_wrapper);
+        };
+    }
+    
+    fun create_price_cache(scenario: &mut Scenario, owner: address) {
         test_scenario::next_tx(scenario, &owner);
         {
             let time_wrapper = test_scenario::take_shared<Time>(scenario);
@@ -117,9 +184,9 @@ module suilend::test_deposit_reserve_liquidity {
 
             test_scenario::return_shared(scenario, time_wrapper);
         };
-
-        add_price_info<SUI>(scenario, owner, 10, 0);
-
+    }
+    
+    fun create_lending_market<P: drop>(scenario: &mut Scenario, witness: P, owner: address) {
         test_scenario::next_tx(scenario, &owner);
         {
             let time_wrapper = test_scenario::take_shared<Time>(scenario);
@@ -128,30 +195,46 @@ module suilend::test_deposit_reserve_liquidity {
             let price_cache_wrapper = test_scenario::take_shared<PriceCache>(scenario);
             let price_cache = test_scenario::borrow_mut(&mut price_cache_wrapper);
 
-            create_lending_market(POOLEY {}, time, price_cache, test_scenario::ctx(scenario));
+            lending_market::create_lending_market<P>(
+                witness, 
+                time, 
+                price_cache, 
+                test_scenario::ctx(scenario)
+            );
 
             test_scenario::return_shared(scenario, time_wrapper);
             test_scenario::return_shared(scenario, price_cache_wrapper);
-        };
-        
+        }
+    }
+    
+    fun create_time(scenario: &mut Scenario, owner: address, start_time: u64) {
         test_scenario::next_tx(scenario, &owner);
         {
-            let admin_cap = test_scenario::take_owned<AdminCap<POOLEY>>(scenario);
+            time::new(start_time, test_scenario::ctx(scenario));
+        }
+    }
+    
+    fun add_reserve<P, T>(scenario: &mut Scenario, owner: address) {
+        test_scenario::next_tx(scenario, &owner);
+        {
+            let admin_cap = test_scenario::take_owned<AdminCap<P>>(scenario);
 
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<POOLEY>>(scenario);
+            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
             let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
 
             let time_wrapper = test_scenario::take_shared<Time>(scenario);
             let time = test_scenario::borrow_mut(&mut time_wrapper);
 
-            add_reserve<POOLEY, SUI>(&admin_cap, lending_market, time, test_scenario::ctx(scenario));
+            lending_market::add_reserve<P, T>(&admin_cap, lending_market, time, test_scenario::ctx(scenario));
             
             test_scenario::return_shared(scenario, lending_market_wrapper);
             test_scenario::return_shared(scenario, time_wrapper);
             test_scenario::return_owned(scenario, admin_cap);
-        };
+        }
+    }
 
-        test_scenario::next_tx(scenario, &rando_1);
+    fun deposit_reserve_liquidity<P, T>(scenario: &mut Scenario, owner: address): Coin<CToken<P, T>> {
+        test_scenario::next_tx(scenario, &owner);
         {
             let lending_market_wrapper = test_scenario::take_shared<LendingMarket<POOLEY>>(scenario);
             let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
@@ -164,7 +247,7 @@ module suilend::test_deposit_reserve_liquidity {
             
             let money = coin::mint_for_testing<SUI>(100, test_scenario::ctx(scenario));
 
-            deposit_reserve_liquidity<POOLEY, SUI>(
+            lending_market::deposit_reserve_liquidity<POOLEY, SUI>(
                 lending_market, 
                 &mut reserve_info, 
                 money, 
@@ -176,28 +259,30 @@ module suilend::test_deposit_reserve_liquidity {
             test_scenario::return_shared(scenario, time_wrapper);
             test_scenario::return_owned(scenario, reserve_info);
         };
-        
 
         // verify that 100 ctokens were minted
-        test_scenario::next_tx(scenario, &rando_1);
-        let ctokens = test_scenario::take_owned<Coin<CToken<POOLEY, SUI>>>(scenario);
-        assert!(coin::value(&ctokens) == 100, coin::value(&ctokens));
-        
-        test_scenario::next_tx(scenario, &rando_1);
+        test_scenario::next_tx(scenario, &owner);
+        test_scenario::take_owned<Coin<CToken<P, T>>>(scenario)
+    }
+    
+    fun create_obligation<P>(scenario: &mut Scenario, owner: address) {
+        test_scenario::next_tx(scenario, &owner);
         {
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<POOLEY>>(scenario);
+            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
             let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
 
             let time_wrapper = test_scenario::take_shared<Time>(scenario);
             let time = test_scenario::borrow_mut(&mut time_wrapper);
             
-            create_obligation<POOLEY>(lending_market, time, test_scenario::ctx(scenario));
+            lending_market::create_obligation<P>(lending_market, time, test_scenario::ctx(scenario));
 
             test_scenario::return_shared(scenario, lending_market_wrapper);
             test_scenario::return_shared(scenario, time_wrapper);
         };
-        
-        test_scenario::next_tx(scenario, &rando_1); 
+    }
+
+    fun add_deposit_info_to_obligation<P, T>(scenario: &mut Scenario, owner: address) {
+        test_scenario::next_tx(scenario, &owner); 
         {
             let lending_market_wrapper = test_scenario::take_shared<LendingMarket<POOLEY>>(scenario);
             let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
@@ -213,22 +298,28 @@ module suilend::test_deposit_reserve_liquidity {
 
             test_scenario::return_shared(scenario, lending_market_wrapper);
             test_scenario::return_owned(scenario, obligation);
-        }; 
-        
-        test_scenario::next_tx(scenario, &rando_1);
+        };
+    }
+    
+    fun deposit_ctokens_into_obligation<P, T>(
+        scenario: &mut Scenario, 
+        owner: address, 
+        ctokens: Coin<CToken<P, T>>
+    ) {
+        test_scenario::next_tx(scenario, &owner);
         {
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<POOLEY>>(scenario);
+            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
             let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
 
             let time_wrapper = test_scenario::take_shared<Time>(scenario);
             let time = test_scenario::borrow_mut(&mut time_wrapper);
 
-            let obligation = test_scenario::take_child_object<LendingMarket<POOLEY>, Obligation<POOLEY>>(
+            let obligation = test_scenario::take_child_object<LendingMarket<P>, Obligation<P>>(
                 scenario, lending_market);
 
             let deposit_info = test_scenario::take_child_object<
-                Obligation<POOLEY>, 
-                DepositInfo<CToken<POOLEY, SUI>>>(scenario, &mut obligation);
+                Obligation<P>, 
+                DepositInfo<CToken<P, T>>>(scenario, &mut obligation);
                 
             lending_market::deposit_ctokens(
                 lending_market,
@@ -243,10 +334,40 @@ module suilend::test_deposit_reserve_liquidity {
             test_scenario::return_shared(scenario, time_wrapper);
             test_scenario::return_owned(scenario, obligation);
             test_scenario::return_owned(scenario, deposit_info);
-        };
+        }
+    }
+    
+    #[test]
+    fun lending_market_create_reserve() {
+        let owner = @0x26;
+        let rando_1 = @0x27;
+        /* let rando_2 = @0x28; */
+        let start_time = 1;
         
+        let scenario = &mut test_scenario::begin(&owner);
+        
+        create_time(scenario, owner, start_time);
+        create_price_cache(scenario, owner);
+
+        // SUI is $10
+        add_price_info<SUI>(scenario, owner, 10, 0);
+
+        create_lending_market(scenario, POOLEY {}, owner);
+        add_reserve<POOLEY, SUI>(scenario, owner);
+
+        let ctokens = deposit_reserve_liquidity<POOLEY, SUI>(scenario, rando_1);
+        assert!(coin::value(&ctokens) == 100, coin::value(&ctokens));
+
+        create_obligation<POOLEY>(scenario, rando_1);
+        add_deposit_info_to_obligation<POOLEY, SUI>(scenario, rando_1);
+        
+        deposit_ctokens_into_obligation<POOLEY, SUI>(scenario, rando_1, ctokens);
+
         // update price of SUI
         update_price<SUI>(scenario, owner, 20, 0);
+
+        reset_stats<POOLEY>(scenario, rando_1);
+        update_stats_deposit<POOLEY, SUI>(scenario, rando_1);
     }
 
 

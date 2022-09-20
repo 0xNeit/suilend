@@ -100,9 +100,12 @@ module suilend::oracle {
     
     /// find the market value of a specified quantity of tokens.
     public fun market_value<T>(price_info: &PriceInfo<T>, quantity: u64): Decimal {
-        div(
-            mul(decimal::from(quantity), price(price_info)),
-            pow(decimal::from(10), price_info.decimals)
+        mul(
+            price(price_info),
+            div(
+                decimal::from(quantity), 
+                pow(decimal::from(10), price_info.decimals)
+            )
         )
     }
 }

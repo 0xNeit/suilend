@@ -3,7 +3,7 @@ name = "suilend"
 version = "0.0.1"
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework", rev = "df05544fb0cbd6d6db016e71e5facb5e7cc27988" }
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework", rev = "5b7b6272408c6b1c91c82319e481064472a93778" }
 
 [addresses]
 suilend =  "0x0"
