@@ -1,6 +1,3 @@
-// Strongly typed oracle module. 
-// TODO maybe the authorities should be a dynamic check
-
 module suilend::oracle {
     use suilend::decimal::{Self, Decimal, div, mul, pow};
     use sui::object::{Self, ID, UID};
@@ -34,6 +31,7 @@ module suilend::oracle {
 
     const EUnauthorized: u64 = 0;
     const EInvalidTime: u64 = 1;
+    const EInvalidPriceInfo: u64 = 2;
 
     public entry fun new_price_cache(time: &Time, ctx: &mut TxContext) {
         let price_cache = PriceCache {
@@ -65,11 +63,32 @@ module suilend::oracle {
             last_update_s: time::get_epoch_s(time),
         };
         
-        transfer::share_object(price_info);
+        transfer::transfer_to_object(price_info, price_cache);
+    }
+    
+    public entry fun update_price_info<T>(
+        price_cache: &PriceCache,
+        price_info: &mut PriceInfo<T>,
+        time: &Time, 
+        base: u64, 
+        exp: u64, 
+        ctx: &mut TxContext
+    ) {
+        assert!(tx_context::sender(ctx) == price_cache.owner, EUnauthorized);
+        assert!(price_cache.time_id == object::id(time), EInvalidTime);
+        assert!(price_info.price_cache_id == object::id(price_cache), EInvalidPriceInfo);
+
+        price_info.base = base;
+        price_info.exp = exp;
+        price_info.last_update_s = time::get_epoch_s(time);
     }
 
     public fun last_update_s<T>(price_info: &PriceInfo<T>): u64 {
         price_info.last_update_s
+    }
+    
+    public fun price_cache_id<T>(price_info: &PriceInfo<T>): ID {
+        price_info.price_cache_id
     }
 
     public fun price<T>(price_info: &PriceInfo<T>): Decimal {

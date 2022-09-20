@@ -6,10 +6,10 @@
 module suilend::obligation {
     use sui::object::{Self, ID, UID};
     use sui::balance::{Self, Balance};
-    use suilend::decimal::{Decimal, Self, add, mul, div, pow, le};
+    use suilend::decimal::{Decimal, Self, add, mul, div, le};
     use sui::vec_set::{Self, VecSet};
-    use sui::tx_context::{TxContext};
-    use suilend::price::{Self, PriceInfo};
+    use sui::tx_context::{Self, TxContext};
+    use suilend::oracle::{Self, PriceInfo};
     use suilend::reserve::{Self, Reserve, CToken};
     use suilend::time::{Self, Time};
 
@@ -25,10 +25,11 @@ module suilend::obligation {
     const EInvalidStats: u64 = 6;
     const EReserveIsStale: u64 = 7;
     const EBorrowIsTooLarge: u64 = 8;
+    const EUnauthorized: u64 = 9;
     
     const PRICE_STALENESS_THRESHOLD_S: u64 = 30;
     
-    struct Obligation<phantom P> has key {
+    struct Obligation<phantom P> has key, store {
         id: UID,
         owner: address,
         deposits: VecSet<ID>,
@@ -97,6 +98,8 @@ module suilend::obligation {
     }
     
     public fun add_deposit_info<P, T>(obligation: &mut Obligation<P>, ctx: &mut TxContext) {
+        assert!(obligation.owner == tx_context::sender(ctx), EUnauthorized);
+
         let deposit = DepositInfo<T> {
             id: object::new(ctx),
             obligation_id: object::id(obligation),
@@ -104,10 +107,17 @@ module suilend::obligation {
             usd_value: decimal::zero(),
         };
         
+        vec_set::insert(&mut obligation.deposits, object::id(&deposit));
         transfer::transfer_to_object(deposit, obligation);
     }
     
-    public fun deposit<P, T>(obligation: &mut Obligation<P>, liquidity: Balance<T>, deposit: &mut DepositInfo<T>) {
+    public fun deposit<P, T>(
+        obligation: &mut Obligation<P>, 
+        liquidity: Balance<T>, 
+        deposit: &mut DepositInfo<T>,
+        ctx: &mut TxContext
+    ) {
+        assert!(obligation.owner == tx_context::sender(ctx), EUnauthorized);
         assert!(deposit.obligation_id == object::id(obligation), EInvalidDeposit);
         assert!(vec_set::contains(&obligation.deposits, &object::id(deposit)), EInvalidDeposit);
         
@@ -116,6 +126,8 @@ module suilend::obligation {
     }
     
     public fun add_borrow_info<P, T>(obligation: &mut Obligation<P>, ctx: &mut TxContext) {
+        assert!(obligation.owner == tx_context::sender(ctx), EUnauthorized);
+
         let borrow = BorrowInfo<T> {
             id: object::new(ctx),
             obligation_id: object::id(obligation),
@@ -133,17 +145,15 @@ module suilend::obligation {
         reserve: &mut Reserve<P, T>, 
         cur_time: u64, 
         price_info: &PriceInfo<T>, 
-        borrow_amount: u64
+        borrow_amount: u64,
+        ctx: &mut TxContext
     ): Balance<T> {
+        assert!(obligation.owner == tx_context::sender(ctx), EUnauthorized);
         assert!(is_stats_valid(obligation, cur_time), EInvalidStats);
         // TODO check that reserve is refreshed. or refresh it ourself. idk.
         
         // check that we don't exceed our borrow limits
-        let borrow_usd_value = div(
-            mul(decimal::from(borrow_amount), price::price(price_info)),
-            pow(decimal::from(10), price::decimals(price_info))
-        );
-        
+        let borrow_usd_value = oracle::market_value(price_info, borrow_amount);
         let new_borrow_usd_value = add(borrow_usd_value, obligation.stats.usd_borrow_value);
         assert!(le(new_borrow_usd_value, obligation.stats.usd_deposit_value), EBorrowIsTooLarge);
         
@@ -155,10 +165,12 @@ module suilend::obligation {
         reserve::borrow_liquidity(reserve, cur_time, borrow_amount)
     }
     
-    public fun reset_stats<P>(obligation: &mut Obligation<P>) {
+    public fun reset_stats<P>(obligation: &mut Obligation<P>, time: &Time) {
         assert!(obligation.seqnum != obligation.stats.seqnum, ESeqnumStillValid);
         
         obligation.stats.seqnum = obligation.seqnum;
+        obligation.stats.last_refreshed = time::get_epoch_s(time);
+
         obligation.stats.usd_borrow_value = decimal::zero();
         obligation.stats.usd_deposit_value = decimal::zero();
 
@@ -180,7 +192,7 @@ module suilend::obligation {
             EBorrowAlreadyHandled
         );
         assert!(
-            price::last_update(price_info) >= time::get_epoch_s(time) - PRICE_STALENESS_THRESHOLD_S, 
+            oracle::last_update_s(price_info) >= time::get_epoch_s(time) - PRICE_STALENESS_THRESHOLD_S, 
             EPriceTooStale
         ); 
         assert!(obligation.stats.seqnum == obligation.seqnum, ESeqnumIsStale);
@@ -196,9 +208,10 @@ module suilend::obligation {
         borrow_info.cumulative_borrow_rate_snapshot = new_cumulative_borrow_rate;
         
         // refresh usd value
-        borrow_info.usd_value = div(
-            mul(borrow_info.borrowed_amount, price::price(price_info)),
-            pow(decimal::from(10), price::decimals(price_info))
+        // TODO make sure to ceil here
+        borrow_info.usd_value  = oracle::market_value(
+            price_info, 
+            decimal::to_u64(borrow_info.borrowed_amount)
         );
         obligation.stats.usd_borrow_value = add(
             obligation.stats.usd_borrow_value, 
@@ -229,7 +242,7 @@ module suilend::obligation {
             EDepositAlreadyHandled
         );
         assert!(
-            price::last_update(price_info) >= time::get_epoch_s(time) - PRICE_STALENESS_THRESHOLD_S, 
+            oracle::last_update_s(price_info) >= time::get_epoch_s(time) - PRICE_STALENESS_THRESHOLD_S, 
             EPriceTooStale
         ); 
         assert!(obligation.stats.seqnum == obligation.seqnum, ESeqnumIsStale);
@@ -237,13 +250,12 @@ module suilend::obligation {
         
         let ctoken_ratio = reserve::ctoken_exchange_rate<P, T>(reserve);
         let ctokens = decimal::from(balance::value(&deposit_info.balance));
-        let liquidity = mul(ctokens, ctoken_ratio);
+
+        // FIXME: make sure this floors
+        let liquidity = decimal::to_u64(mul(ctokens, ctoken_ratio));
         
-        deposit_info.usd_value = div(
-            mul(liquidity, price::price(price_info)),
-            pow(decimal::from(10), price::decimals(price_info))
-        );
-        
+        deposit_info.usd_value = oracle::market_value(price_info, liquidity);
+
         obligation.stats.usd_deposit_value = add(
             obligation.stats.usd_deposit_value,
             deposit_info.usd_value

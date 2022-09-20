@@ -9,22 +9,26 @@ module suilend::lending_market {
     use sui::tx_context::{Self, TxContext};
     use sui::transfer;
     use sui::coin::{Self, Coin};
-    use suilend::reserve::{Self, Reserve};
+    use suilend::reserve::{Self, Reserve, CToken};
     use suilend::time::{Self, Time};
     use std::vector;
+    use suilend::obligation::{Self, Obligation, DepositInfo};
+    use suilend::oracle::{Self, PriceCache, PriceInfo};
     
 
     // errors
     const EInvalidTime: u64 = 0;
     const EInvalidReserve: u64 = 1;
     const EUnauthorized: u64 = 2;
+    const EInvalidPrice: u64 = 3;
 
     // this is a shared object that contains references to ReserveInfos. This object 
     // also owns the ReserveInfos.
     struct LendingMarket<phantom P> has key {
         id: UID,
         reserve_info_ids: vector<ID>,
-        time_id: ID
+        time_id: ID,
+        price_cache_id: ID,
     }
     
     struct AdminCap<phantom P> has key {
@@ -40,6 +44,7 @@ module suilend::lending_market {
     public entry fun create_lending_market<P: drop>(
         _witness: P, 
         time: &Time,
+        price_cache: &PriceCache,
         ctx: &mut TxContext
     ) {
         // TODO add one-time witness check here
@@ -49,6 +54,7 @@ module suilend::lending_market {
             id,
             reserve_info_ids: vector::empty(),
             time_id: object::id(time),
+            price_cache_id: object::id(price_cache)
         };
         
         transfer::share_object(lending_market);
@@ -80,7 +86,9 @@ module suilend::lending_market {
         transfer::transfer_to_object(reserve_info, lending_market);
     }
     
-    // deposit reserve liquidity
+    // Deposits Coin<T> into the lending market and returns Coin<CToken<T>>. 
+    // The ctoken entitles the user to their original principal + any accumulated
+    // interest.
     public entry fun deposit_reserve_liquidity<P, T>(
         lending_market: &mut LendingMarket<P>, 
         reserve_info: &mut ReserveInfo<P, T>, 
@@ -100,5 +108,76 @@ module suilend::lending_market {
         let ctokens = coin::from_balance(ctoken_balance, ctx);
 
         transfer::transfer(ctokens, tx_context::sender(ctx));
+    }
+    
+    public entry fun create_obligation<P>(
+        lending_market: &mut LendingMarket<P>,
+        time: &Time,
+        ctx: &mut TxContext
+    ) {
+        assert!(object::id(time) == lending_market.time_id, EInvalidTime);
+        
+        let obligation = obligation::create_obligation<P>(
+            tx_context::sender(ctx),
+            time::get_epoch_s(time),
+            ctx
+        );
+        
+        transfer::transfer_to_object(obligation, lending_market);
+    }
+    
+    public entry fun add_deposit_info_to_obligation<P, T>(
+        _lending_market: &mut LendingMarket<P>,
+        obligation: &mut Obligation<P>,
+        ctx: &mut TxContext
+    ) {
+        obligation::add_deposit_info<P, T>(obligation, ctx);
+    }
+    
+    public entry fun deposit_ctokens<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        obligation: &mut Obligation<P>,
+        deposit_info: &mut DepositInfo<CToken<P, T>>,
+        time: &Time,
+        deposit: Coin<CToken<P, T>>,
+        ctx: &mut TxContext
+    ) {
+        assert!(object::id(time) == lending_market.time_id, EInvalidTime);
+        obligation::deposit(
+            obligation,
+            coin::into_balance(deposit),
+            deposit_info,
+            ctx
+        );
+    }
+    
+    public entry fun reset_stats<P>(
+        _lending_market: &mut LendingMarket<P>,
+        obligation: &mut Obligation<P>,
+        time: &Time,
+        _ctx: &mut TxContext
+    ) {
+        obligation::reset_stats(obligation, time);
+    }
+    
+    public entry fun update_stats_deposit<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_info: &mut ReserveInfo<P, T>,
+        obligation: &mut Obligation<P>,
+        deposit_info: &mut DepositInfo<CToken<P, T>>,
+        time: &Time,
+        price_info: &PriceInfo<T>,
+        _ctx: &mut TxContext
+    ) {
+        assert!(object::id(time) == lending_market.time_id, EInvalidTime);
+        assert!(oracle::price_cache_id(price_info) == lending_market.price_cache_id, EInvalidPrice);
+        
+        obligation::update_stats_deposit(
+            obligation,
+            deposit_info,
+            time, 
+            &reserve_info.reserve,
+            price_info
+        );
     }
 }
