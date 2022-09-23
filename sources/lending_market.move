@@ -14,6 +14,7 @@ module suilend::lending_market {
     use std::vector;
     use suilend::obligation::{Self, Obligation, BorrowInfo, DepositInfo};
     use suilend::oracle::{Self, PriceCache, PriceInfo};
+    /* use sui::types; */
     
 
     // errors
@@ -21,6 +22,7 @@ module suilend::lending_market {
     const EInvalidReserve: u64 = 1;
     const EUnauthorized: u64 = 2;
     const EInvalidPrice: u64 = 3;
+    const ENotAOneTimeWitness: u64 = 4;
 
     // this is a shared object that contains references to ReserveInfos. This object 
     // also owns the ReserveInfos.
@@ -47,7 +49,7 @@ module suilend::lending_market {
         price_cache: &PriceCache,
         ctx: &mut TxContext
     ) {
-        // TODO add one-time witness check here
+        /* assert!(types::is_one_time_witness(&witness), ENotAOneTimeWitness); */
 
         let id = object::new(ctx);
         let lending_market = LendingMarket<P> {

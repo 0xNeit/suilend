@@ -1,6 +1,6 @@
 module suilend::reserve {
     use sui::balance::{Self, Balance, Supply};
-    use suilend::decimal::{Decimal, Self, add, mul, div};
+    use suilend::decimal::{Decimal, Self, add, sub, mul, div};
     use suilend::interest_rate::{InterestRate, Self};
 
     friend suilend::obligation;
@@ -151,12 +151,30 @@ module suilend::reserve {
         // TODO assert that ctokens * ctoken_ratio <= liquidity amount
     }
     
-    // TODO make sure only obligation can use this function
-    public(friend) fun borrow_liquidity<P, T>(reserve: &mut Reserve<P, T>, cur_time: u64, amount: u64): Balance<T> {
+    public(friend) fun borrow_liquidity<P, T>(
+        reserve: &mut Reserve<P, T>, 
+        cur_time: u64, 
+        amount: u64
+    ): Balance<T> {
         compound_debt_and_interest(reserve, cur_time);
         
         reserve.borrowed_liquidity = add(reserve.borrowed_liquidity, decimal::from(amount));
         balance::split(&mut reserve.available_liquidity, amount)
+    }
+
+    public(friend) fun repay_liquidity<P, T>(
+        reserve: &mut Reserve<P, T>, 
+        cur_time: u64, 
+        amount: Balance<T>
+    ) {
+        compound_debt_and_interest(reserve, cur_time);
+        
+        reserve.borrowed_liquidity = sub(
+            reserve.borrowed_liquidity, 
+            decimal::from(balance::value(&amount))
+        );
+
+        balance::join(&mut reserve.available_liquidity, amount);
     }
     
     public fun redeem_ctokens_for_liquidity<P, T>(reserve: &mut Reserve<P, T>, cur_time: u64, ctokens: Balance<CToken<P, T>>): Balance<T> {

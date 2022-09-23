@@ -502,5 +502,10 @@ module suilend::test_deposit_reserve_liquidity {
         let coins = borrow<POOLEY, SUI>(scenario, rando_1, 100);
         assert!(coin::value(&coins) == 100, coin::value(&coins));
         coin::destroy_for_testing(coins);
+        
+        // refresh obligation
+        reset_stats<POOLEY>(scenario, rando_1);
+        update_stats_borrow<POOLEY, SUI>(scenario, rando_1);
+        update_stats_deposit<POOLEY, SUI>(scenario, rando_1);
     }
 }
