@@ -98,6 +98,7 @@ module suilend::obligation {
         }
     }
     
+    // FIXME: i need the reserve here too, otherwise users can deposit assets that we don't support
     public fun deposit<P, T>(
         obligation: &mut Obligation<P>, 
         liquidity: Balance<T>, 
