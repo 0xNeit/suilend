@@ -12,7 +12,7 @@ module suilend::lending_market {
     use suilend::reserve::{Self, Reserve, CToken};
     use suilend::time::{Self, Time};
     use std::vector;
-    use suilend::obligation::{Self, Obligation, DepositInfo};
+    use suilend::obligation::{Self, Obligation, BorrowInfo, DepositInfo};
     use suilend::oracle::{Self, PriceCache, PriceInfo};
     
 
@@ -133,6 +133,14 @@ module suilend::lending_market {
     ) {
         obligation::add_deposit_info<P, T>(obligation, ctx);
     }
+
+    public entry fun add_borrow_info_to_obligation<P, T>(
+        _lending_market: &mut LendingMarket<P>,
+        obligation: &mut Obligation<P>,
+        ctx: &mut TxContext
+    ) {
+        obligation::add_borrow_info<P, T>(obligation, ctx);
+    }
     
     public entry fun deposit_ctokens<P, T>(
         lending_market: &mut LendingMarket<P>,
@@ -148,6 +156,35 @@ module suilend::lending_market {
             coin::into_balance(deposit),
             deposit_info,
             ctx
+        );
+    }
+
+    public entry fun borrow<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_info: &mut ReserveInfo<P, T>,
+        obligation: &mut Obligation<P>,
+        borrow_info: &mut BorrowInfo<T>,
+        time: &Time,
+        price_info: &PriceInfo<T>,
+        borrow_amount: u64,
+        ctx: &mut TxContext
+    ) {
+        assert!(object::id(time) == lending_market.time_id, EInvalidTime);
+        assert!(oracle::price_cache_id(price_info) == lending_market.price_cache_id, EInvalidPrice);
+
+        let borrowed_balance = obligation::borrow(
+            obligation,
+            borrow_info,
+            &mut reserve_info.reserve,
+            time::get_epoch_s(time),
+            price_info,
+            borrow_amount,
+            ctx
+        );
+        
+        transfer::transfer(
+            coin::from_balance(borrowed_balance, ctx),
+            tx_context::sender(ctx)
         );
     }
     
@@ -180,4 +217,26 @@ module suilend::lending_market {
             price_info
         );
     }
+
+    public entry fun update_stats_borrow<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_info: &mut ReserveInfo<P, T>,
+        obligation: &mut Obligation<P>,
+        borrow_info: &mut BorrowInfo<T>,
+        time: &Time,
+        price_info: &PriceInfo<T>,
+        _ctx: &mut TxContext
+    ) {
+        assert!(object::id(time) == lending_market.time_id, EInvalidTime);
+        assert!(oracle::price_cache_id(price_info) == lending_market.price_cache_id, EInvalidPrice);
+        
+        obligation::update_stats_borrow(
+            obligation,
+            borrow_info,
+            time, 
+            &mut reserve_info.reserve,
+            price_info
+        );
+    }
+    
 }

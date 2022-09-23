@@ -230,6 +230,8 @@ module suilend::obligation {
         );
     }
     
+    use std::debug;
+
     public fun update_stats_deposit<P, T>(
         obligation: &mut Obligation<P>, 
         deposit_info: &mut DepositInfo<CToken<P, T>>, 
@@ -273,11 +275,13 @@ module suilend::obligation {
             &mut obligation.stats.handled_deposits,
             object::id(deposit_info)
         );
+        
+        debug::print(obligation);
     }
     
     public fun is_stats_valid<P>(obligation: &Obligation<P>, cur_time: u64): bool {
         obligation.stats.seqnum == obligation.seqnum 
-        && (obligation.stats.last_refreshed >= cur_time - PRICE_STALENESS_THRESHOLD_S)
+        && (obligation.stats.last_refreshed + PRICE_STALENESS_THRESHOLD_S >= cur_time)
         && vec_set::is_empty(&obligation.stats.unhandled_borrows)
         && vec_set::is_empty(&obligation.stats.unhandled_deposits)
     }
