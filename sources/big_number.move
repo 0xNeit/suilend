@@ -1,9 +1,9 @@
 //// arbitrary precision little endian integer composed of u64s.
 
 module suilend::big_number {
-    use std::vector::{empty, push_back, borrow, length, pop_back};
+    use std::vector::{empty, push_back, borrow, length, pop_back, borrow_mut};
 
-    struct BN has drop {
+    struct BN has copy, drop {
         vals: vector<u64>
     }
     
@@ -106,8 +106,54 @@ module suilend::big_number {
         })
     }
     
-    /// checks if a > b
-    public fun gt(a: BN, b: BN): bool {
+    public fun mul(a: BN, b: BN): BN {
+        if (a == zero() || b == zero()) {
+            return zero()
+        };
+
+        let product = empty();
+        {
+            let i = 0;
+            while (i < length(&a.vals) + length(&b.vals)) {
+                push_back(&mut product, 0);
+                i = i + 1;
+            };
+        };
+        
+        let i = 0;
+        while (i < length(&b.vals)) {
+            let j = 0;
+            let carry = 0;
+            while (j < length(&a.vals)) {
+                // multiply the i'th digit of b with the j'th digit of a, 
+                // and store it in product[i + j]
+                let b_i = *borrow(&b.vals, i);
+                let a_j = *borrow(&a.vals, j);
+                let product_ij = *borrow(&product, i + j);
+
+                let sum = (b_i as u128) * (a_j as u128) + (product_ij as u128) + (carry as u128);
+                *borrow_mut(&mut product, i + j) = ((sum & 0xffffffffffffffff) as u64);
+
+                carry = ((sum >> 64) as u64);
+                
+               j = j + 1; 
+            };
+            
+            if (carry > 0) {
+                *borrow_mut(&mut product, i + j) = carry;
+            };
+
+            i = i + 1; 
+        };
+        
+        reduce(
+            BN {
+                vals: product
+            }
+        )
+    }
+    
+    fun gt_helper(a: BN, b: BN, equal: bool): bool {
         let a_len = length(&a.vals);
         let b_len = length(&b.vals);
         
@@ -124,7 +170,7 @@ module suilend::big_number {
             let a_i = *borrow(&a.vals, i);
             let b_i = *borrow(&b.vals, i);
 
-            if (a_i > b_i) {
+            if ((!equal && a_i > b_i) || (equal && a_i >= b_i)) {
                 return true
             };
 
@@ -138,6 +184,22 @@ module suilend::big_number {
 
             i = i - 1;
         }
+    }
+    
+    public fun gt(a: BN, b: BN): bool {
+        gt_helper(a, b, false)
+    }
+    
+    public fun ge(a: BN, b: BN): bool {
+        gt_helper(a, b, true)
+    }
+    
+    public fun lt(a: BN, b: BN): bool {
+        gt(b, a)
+    }
+    
+    public fun le(a: BN, b: BN): bool {
+        ge(b, a)
     }
     
     #[test_only]
@@ -233,5 +295,33 @@ module suilend::big_number {
         let diff = sub(a, b);
         assert!(diff == from_le_2(1, MAX_U64), 0);
     }
+
+    #[test]
+    fun test_mul_zero() {
+        let a = from_le_2(0, 0);
+        let b = from_le_2(8, 9);
+        
+        assert!(mul(a, b) == zero(), 0);
+        assert!(mul(b, a) == zero(), 0);
+    }
+
+    #[test]
+    fun test_mul_basic() {
+        let a = from_u64(8);
+        let b = from_u64(9);
+        
+        let product = mul(a, b);
+        assert!(product == from_u64(72), 0);
+    }
+    
+    #[test]
+    fun test_mul_complex() {
+        let a = from_le_2(8, 7);
+        let b = from_le_2(8, 9);
+        
+        let product = mul(a, b);
+        assert!(product == from_le_3(64, 128, 63), 0);
+    }
+
 
 }
