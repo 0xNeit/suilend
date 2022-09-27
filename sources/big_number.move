@@ -323,5 +323,15 @@ module suilend::big_number {
         assert!(product == from_le_3(64, 128, 63), 0);
     }
 
+    #[test]
+    fun test_mul_complex_2() {
+        use std::debug;
+        let a = from_le_2(MAX_U64, MAX_U64);
+        let b = from_le_2(MAX_U64, MAX_U64);
+        
+        let product = mul(a, b);
+        assert!(product == from_le_4(1, 0, 18446744073709551614, 18446744073709551615), 0);
+    }
+
 
 }
