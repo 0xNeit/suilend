@@ -279,8 +279,6 @@ module suilend::obligation {
         );
     }
     
-    use std::debug;
-
     public fun update_stats_deposit<P, T>(
         obligation: &mut Obligation<P>, 
         deposit_info: &mut DepositInfo<CToken<P, T>>, 
@@ -323,7 +321,6 @@ module suilend::obligation {
             object::id(deposit_info)
         );
         
-        debug::print(obligation);
     }
     
     public fun is_stats_valid<P>(obligation: &Obligation<P>, cur_time: u64): bool {

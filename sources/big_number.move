@@ -208,15 +208,57 @@ module suilend::big_number {
         )
     }
     
-    /* public fun div(a: BN, b: BN): BN { */
-    /*     assert!(b != zero(), EDivideByZero); */
+    public fun div(a: BN, b: BN): BN {
+        assert!(b != zero(), EDivideByZero);
 
-    /*     if (a == zero() || lt(a,b)) { */
-    /*         return zero() */
-    /*     }; */
+        if (a == zero() || lt(a,b)) {
+            return zero()
+        };
+
+        if (length(&b.vals) == 1) {
+            return div_small(a, *borrow(&b.vals, 0))
+        };
         
-    /*     div_knuth(a, b) */
-    /* } */
+        div_knuth(a, b)
+    }
+
+    fun div_small(a: BN, b: u64): BN {
+        let quotient = empty();
+        {
+            let i = 0;
+            while (i < length(&a.vals)) {
+                push_back(&mut quotient, 0);
+                i = i + 1;
+            };
+        };
+
+        let i = length(&a.vals);
+        let remainder = 0u64;
+
+        while (i > 0) {
+            i = i - 1;
+            let a_i = *borrow(&a.vals, i);
+
+            let dividend = (remainder as u128);
+            dividend = dividend << 64;
+            dividend = dividend + (a_i as u128);
+
+            let q = ((dividend / (b as u128)) as u64);
+            *borrow_mut(&mut quotient, i) = q;
+
+            remainder = (dividend % (b as u128) as u64);
+        };
+
+        reduce(BN {
+            vals: quotient
+        })
+    }
+
+    fun div_knuth(_a: BN, _b: BN): BN {
+        zero()
+    }
+
+
     fun leading_zeros(a: BN): u8 {
         if (a == zero()) { 
             return 64
@@ -476,6 +518,18 @@ module suilend::big_number {
         {
             let a = from_le_2_unreduced(2, 0);
             assert!(leading_zeros(a) == 62 + 64, (leading_zeros(a) as u64));
+        };
+    }
+
+    #[test]
+    fun test_div_small() {
+        {
+            let a = from_le_2(6, 4);
+            assert!(div_small(a, 2) == from_le_2(3, 2), 0);
+        };
+        {
+            let a = from_le_2(3, 4);
+            assert!(div_small(a, 45) == from_u64(1639710584329737921), 0);
         };
     }
 
