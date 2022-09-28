@@ -153,6 +153,50 @@ module suilend::big_number {
         )
     }
     
+    // left shift.
+    public fun shl(a: BN, shift: u64): BN {
+        let word_shifts = shift / 64;
+        let bit_shifts = ((shift % 64) as u8);
+
+        let shifted = empty();
+        {
+            let i = 0;
+            while (i < length(&a.vals) + word_shifts + 1) {
+                push_back(&mut shifted, 0);
+                i = i + 1;
+            };
+        };
+        
+        {
+            let i = 0;
+            while (i < length(&a.vals)) {
+                let a_i = *borrow(&a.vals, i);
+                *borrow_mut(&mut shifted, i + word_shifts) = (a_i << bit_shifts);
+
+                i = i + 1;
+            };
+            
+        };
+        
+        {
+            let i = 1;
+            while (i <= length(&a.vals)) {
+                let a_i1 = *borrow(&a.vals, i-1);
+                let shifted_wi = *borrow(&shifted, i + word_shifts);
+                
+                *borrow_mut(&mut shifted, i + word_shifts) = shifted_wi + (a_i1 >> (64 - bit_shifts));
+
+                i = i + 1;
+            };
+        };
+
+        reduce(
+            BN {
+                vals: shifted
+            }
+        )
+    }
+    
     fun gt_helper(a: BN, b: BN, equal: bool): bool {
         let a_len = length(&a.vals);
         let b_len = length(&b.vals);
@@ -258,14 +302,10 @@ module suilend::big_number {
     
     #[test]
     fun test_sum() {
-        use std::debug;
-
         let a = from_le_3(MAX_U64, 0, 1);
         let b = from_le_3(1, MAX_U64, MAX_U64);
 
         let sum = add(a, b);
-        debug::print(&sum);
-
         assert!(sum == from_le_4(0, 0, 1, 1), 0);
     }
     
@@ -325,12 +365,32 @@ module suilend::big_number {
 
     #[test]
     fun test_mul_complex_2() {
-        use std::debug;
         let a = from_le_2(MAX_U64, MAX_U64);
         let b = from_le_2(MAX_U64, MAX_U64);
         
         let product = mul(a, b);
         assert!(product == from_le_4(1, 0, 18446744073709551614, 18446744073709551615), 0);
+    }
+    
+    #[test]
+    fun test_shl_basic() {
+        let a = from_u64(1);
+        let shifted = shl(a, 5);
+        assert!(shifted == from_u64(32), 0)
+    }
+    
+    #[test]
+    fun test_shl_overflow() {
+        let a = from_u64(MAX_U64);
+        let shifted = shl(a, 32);
+        assert!(shifted == from_le_2(18446744069414584320, 4294967295), 0)
+    }
+    
+    #[test]
+    fun test_shl_overflow_word_shift() {
+        let a = from_u64(MAX_U64);
+        let shifted = shl(a, 32 + 64*2);
+        assert!(shifted == from_le_4(0, 0, 18446744069414584320, 4294967295), 0)
     }
 
 
