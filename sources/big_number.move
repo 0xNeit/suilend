@@ -10,6 +10,7 @@ module suilend::big_number {
     // errors
     const EOverflow: u64 = 0;
     const EUnderflow: u64 = 1;
+    const EDivideByZero: u64 = 2;
     
     // constants
     const MAX_U64: u64 = 18446744073709551615;
@@ -31,6 +32,16 @@ module suilend::big_number {
     public fun from_u64(v: u64): BN {
         let vals = empty<u64>();
         push_back(&mut vals, v);
+        
+        reduce(BN {
+            vals
+        })
+    }
+
+    public fun from_u128(v: u128): BN {
+        let vals = empty<u64>();
+        push_back(&mut vals, ((v & 0xffffffffffffffff) as u64));
+        push_back(&mut vals, ((v >> 64) as u64));
         
         reduce(BN {
             vals
@@ -197,6 +208,50 @@ module suilend::big_number {
         )
     }
     
+    /* public fun div(a: BN, b: BN): BN { */
+    /*     assert!(b != zero(), EDivideByZero); */
+
+    /*     if (a == zero() || lt(a,b)) { */
+    /*         return zero() */
+    /*     }; */
+        
+    /*     div_knuth(a, b) */
+    /* } */
+    fun leading_zeros(a: BN): u8 {
+        if (a == zero()) { 
+            return 64
+        };
+
+        let i = length(&a.vals) - 1;
+        let num_zeros = 0;
+        loop {
+            let a_i = *borrow(&a.vals, i);
+            if (a_i == 0) {
+                num_zeros = num_zeros + 64;
+            }
+            else {
+                let j = 0;
+                let msb = 1 << 63;
+                while (j < 63) { // can't go to 64 bc then a_i == 0
+                    if ((a_i << j) & msb == 0) {
+                        num_zeros = num_zeros + 1;
+                    }
+                    else {
+                        return num_zeros
+                    };
+                    
+                    j = j + 1;
+                };
+            };
+            
+            if (i == 0) {
+                return num_zeros
+            };
+
+            i = i - 1;
+        }
+    }
+    
     fun gt_helper(a: BN, b: BN, equal: bool): bool {
         let a_len = length(&a.vals);
         let b_len = length(&b.vals);
@@ -255,6 +310,17 @@ module suilend::big_number {
         reduce(BN {
             vals
         })
+    }
+
+    #[test_only]
+    fun from_le_2_unreduced(a: u64, b: u64): BN {
+        let vals = empty();
+        push_back(&mut vals, a);
+        push_back(&mut vals, b);
+        
+        BN {
+            vals
+        }
     }
 
     #[test_only]
@@ -391,6 +457,26 @@ module suilend::big_number {
         let a = from_u64(MAX_U64);
         let shifted = shl(a, 32 + 64*2);
         assert!(shifted == from_le_4(0, 0, 18446744069414584320, 4294967295), 0)
+    }
+    
+    #[test]
+    fun test_leading_zeros() {
+        {
+            let a = zero();
+            assert!(leading_zeros(a) == 64, (leading_zeros(a) as u64));
+        };
+        {
+            let a = from_u64(1);
+            assert!(leading_zeros(a) == 63, (leading_zeros(a) as u64));
+        };
+        {
+            let a = from_le_2_unreduced(1, 0);
+            assert!(leading_zeros(a) == 63 + 64, (leading_zeros(a) as u64));
+        };
+        {
+            let a = from_le_2_unreduced(2, 0);
+            assert!(leading_zeros(a) == 62 + 64, (leading_zeros(a) as u64));
+        };
     }
 
 
