@@ -1,5 +1,5 @@
 #[test_only]
-module suilend::test_deposit_reserve_liquidity {
+module suilend::test_helpers {
     use sui::coin::{Self, Coin};
     use suilend::time::{Self, Time};
     use sui::sui::SUI;
@@ -19,6 +19,9 @@ module suilend::test_deposit_reserve_liquidity {
     use suilend::oracle::{Self, PriceCache, PriceInfo};
 
     struct POOLEY has drop {}
+    
+    // 10^9
+    const MIST_TO_SUI: u64 = 1000000000;
     
     // various helper functions to abstract away all the object taking and returning
     fun update_time(scenario: &mut Scenario, owner: address, new_time: u64) {
@@ -482,8 +485,8 @@ module suilend::test_deposit_reserve_liquidity {
         create_lending_market(scenario, POOLEY {}, owner);
         add_reserve<POOLEY, SUI>(scenario, owner);
 
-        let ctokens = deposit_reserve_liquidity<POOLEY, SUI>(scenario, rando_1, 100);
-        assert!(coin::value(&ctokens) == 100, coin::value(&ctokens));
+        let ctokens = deposit_reserve_liquidity<POOLEY, SUI>(scenario, rando_1, 100 * MIST_TO_SUI);
+        assert!(coin::value(&ctokens) == 100 * MIST_TO_SUI, coin::value(&ctokens));
 
         create_obligation<POOLEY>(scenario, rando_1);
         add_deposit_info_to_obligation<POOLEY, SUI>(scenario, rando_1);
@@ -499,8 +502,8 @@ module suilend::test_deposit_reserve_liquidity {
         
         // try to borrow some coins
         add_borrow_info_to_obligation<POOLEY, SUI>(scenario, rando_1);
-        let coins = borrow<POOLEY, SUI>(scenario, rando_1, 100);
-        assert!(coin::value(&coins) == 100, coin::value(&coins));
+        let coins = borrow<POOLEY, SUI>(scenario, rando_1, 100 * MIST_TO_SUI);
+        assert!(coin::value(&coins) == 100 * MIST_TO_SUI, coin::value(&coins));
         coin::destroy_for_testing(coins);
         
         // refresh obligation
