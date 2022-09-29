@@ -3,7 +3,7 @@
 module suilend::big_number {
     use std::vector::{empty, push_back, borrow, length, pop_back, borrow_mut};
 
-    struct BN has copy, drop {
+    struct BN has copy, store, drop {
         vals: vector<u64>
     }
     
@@ -11,6 +11,7 @@ module suilend::big_number {
     const EOverflow: u64 = 0;
     const EUnderflow: u64 = 1;
     const EDivideByZero: u64 = 2;
+    const ETooBig: u64 = 3;
     
     // constants
     const MAX_U64: u64 = 18446744073709551615;
@@ -48,6 +49,15 @@ module suilend::big_number {
         })
     }
     
+    public fun to_u64(a: BN): u64 {
+        assert!(length(&a.vals) <= 1, length(&a.vals));
+        if (a == zero()) {
+            return 0
+        };
+
+        *borrow(&a.vals, 0)
+    }
+    
     fun max(a: u64, b: u64): u64 {
         if (a > b) { a } else { b }
     }
@@ -79,9 +89,9 @@ module suilend::big_number {
             push_back(&mut sum, carry);
         };
         
-        BN {
+        reduce(BN {
             vals: sum
-        }
+        })
     }
 
     /// subtract a by b.
@@ -518,6 +528,21 @@ module suilend::big_number {
         assert!(!gt(from_le_3(0, 0, 1), from_le_3(0, 0, 2)), 0);
         assert!(!gt(from_le_3(1, 1, 1), from_le_3(1, 1, 1)), 0);
         assert!(!gt(from_le_3(1, 1, 0), from_le_3(1, 1, 1)), 0);
+    }
+
+    #[test]
+    fun test_ge() {
+        assert!(ge(from_le_3(0, 0, 1), from_le_3(0, 1, 0)), 0);
+        assert!(ge(from_le_3(0, 0, 2), from_le_3(0, 1, 1)), 0);
+        assert!(ge(from_le_3(0, 2, 1), from_le_3(0, 1, 1)), 0);
+        assert!(!ge(from_le_3(0, 0, 1), from_le_3(0, 0, 2)), 0);
+        assert!(ge(from_le_3(1, 1, 1), from_le_3(1, 1, 1)), 0);
+        assert!(!ge(from_le_3(1, 1, 0), from_le_3(1, 1, 1)), 0);
+    }
+
+    #[test]
+    fun test_le() {
+        assert!(le(zero(), from_le_3(0, 1, 0)), 0);
     }
     
     #[test]

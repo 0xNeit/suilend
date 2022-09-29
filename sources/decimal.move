@@ -4,13 +4,14 @@
 /// but will definitely have to be fixed before production.
 
 module suilend::decimal {
+    use suilend::big_number::{Self, BN};
+
     struct Decimal has copy, store, drop {
-        value: u128
+        value: BN
     }
     
-    // 10^15
-    const WAD: u128 = 1000000000000000;
-    
+    // 10^18
+    const WAD: u64 = 1000000000000000000;
     
     public fun zero(): Decimal {
         from(0)
@@ -22,7 +23,7 @@ module suilend::decimal {
     
     public fun from(v: u64): Decimal {
         Decimal {
-            value: (v as u128) * WAD
+            value: big_number::mul(big_number::from_u64(v), big_number::from_u64(WAD))
         }
     }
     
@@ -43,41 +44,40 @@ module suilend::decimal {
     // FIXME: this is wrong. need a floor, ceil function instead of this.
     public fun to_u64(d: Decimal): u64 {
         let Decimal { value } = d;
-        value = value / WAD;
+        value = big_number::div(value, big_number::from_u64(WAD));
 
-        (value as u64)
+        big_number::to_u64(value)
+    }
+    
+    public fun to_bps(d: Decimal): u64 {
+        let Decimal { value } = d;
+        value = big_number::div(value, big_number::from_u64(WAD / 10000));
+
+        big_number::to_u64(value)
+        
     }
 
     public fun add(a: Decimal, b: Decimal): Decimal {
         Decimal {
-            value: a.value + b.value
+            value: big_number::add(a.value, b.value)
         }
     }
 
     public fun sub(a: Decimal, b: Decimal): Decimal {
         Decimal {
-            value: a.value - b.value
+            value: big_number::sub(a.value, b.value)
         }
     }
 
     public fun mul(a: Decimal, b: Decimal): Decimal {
-        // jank lyfe pt 100. idek what the precision of this will be, but
-        // im going to re-write this entire module anyways.
-        if (a.value > 1000 * WAD || b.value > 1000 * WAD) {
-            Decimal {
-                value: a.value / WAD * b.value
-            }
-        }
-        else {
-            Decimal {
-                value: a.value * b.value / WAD
-            }
+        Decimal {
+            value: big_number::div(big_number::mul(a.value, b.value), big_number::from_u64(WAD))
         }
     }
 
     public fun div(a: Decimal, b: Decimal): Decimal {
         Decimal {
-            value: a.value * WAD / b.value
+            value: big_number::div(big_number::mul(a.value, big_number::from_u64(WAD)), b.value)
         }
     }
     
@@ -95,42 +95,45 @@ module suilend::decimal {
     }
     
     public fun gt(a: Decimal, b: Decimal): bool {
-        a.value > b.value
+        big_number::gt(a.value, b.value)
     }
 
     public fun ge(a: Decimal, b: Decimal): bool {
-        a.value >= b.value
+        big_number::ge(a.value, b.value)
     }
 
     public fun lt(a: Decimal, b: Decimal): bool {
-        a.value < b.value
+        big_number::lt(a.value, b.value)
     }
 
     public fun le(a: Decimal, b: Decimal): bool {
-        a.value <= b.value
+        big_number::le(a.value, b.value)
     }
     
     // round to 6 decimal places
     // eg rounded(decimal::from_pct(5)) == 50
     public fun rounded(d: Decimal): u64 {
-        (d.value / 1000000000 as u64)
+        let d = big_number::div(d.value, big_number::from_u64(1000000000000));
+        big_number::to_u64(d)
     }
     
-    public fun raw_val(d: Decimal): u128 {
-        d.value
-    }
-    
-    // 10^13
-    const CLOSENESS_THRESHOLD: u128 = 10000000000000;
+    // 10^16
+    const CLOSENESS_THRESHOLD: u64 = 10000000000000000;
 
     // checks if the actual value is within 0.01 of expected
     // FIXME: jank. probably should support a mix of absolute and relative errors
     public fun is_close(actual: Decimal, expected: Decimal): bool {
         if (gt(expected, actual)) {
-            (expected.value - actual.value) <= CLOSENESS_THRESHOLD
+            big_number::le(
+                big_number::sub(expected.value, expected.value), 
+                big_number::from_u64(CLOSENESS_THRESHOLD)
+            )
         }
         else {
-            (actual.value - expected.value) <= CLOSENESS_THRESHOLD
+            big_number::le(
+                big_number::sub(actual.value, expected.value), 
+                big_number::from_u64(CLOSENESS_THRESHOLD)
+            )
         }
     }
 }
