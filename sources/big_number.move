@@ -98,8 +98,10 @@ module suilend::big_number {
             let a_i = *borrow(&a.vals, i);
             let b_i = if (i < length(&b.vals)) { *borrow(&b.vals, i) } else { 0 };
             
-            if (a_i < b_i + borrow) {
-                push_back(&mut diff, MAX_U64 - b_i - borrow + a_i + 1);
+            if ((a_i as u128) < (b_i as u128) + (borrow as u128)) {
+                let d = (MAX_U64 as u128) + (a_i as u128) + 1 - (b_i as u128) - (borrow as u128);
+                assert!(d <= (MAX_U64 as u128), 0);
+                push_back(&mut diff, (d as u64));
                 borrow = 1;
             }
             else {
@@ -189,7 +191,7 @@ module suilend::big_number {
             
         };
         
-        {
+        if (bit_shifts > 0) {
             let i = 1;
             while (i <= length(&a.vals)) {
                 let a_i1 = *borrow(&a.vals, i-1);
@@ -254,12 +256,115 @@ module suilend::big_number {
         })
     }
 
-    fun div_knuth(_a: BN, _b: BN): BN {
-        zero()
+    /// knuth's long division algorithm. this doesn't _exactly_ follow his steps,
+    /// i can optimize this function later.
+    fun div_knuth(u: BN, v: BN): BN {
+        /* use std::debug; */
+
+        let n = length(&v.vals);
+        let m = length(&u.vals) - n;
+
+        // D1: normalize
+        let shift = leading_zeros(v);
+        v = shl(v, shift);
+        u = shl(u, shift);
+        
+        if (length(&u.vals) == n + m) {
+            push_back(&mut u.vals, 0);
+        };
+
+        let quotient = empty();
+        {
+            let i = 0;
+            while (i <= m) {
+                push_back(&mut quotient, 0);
+                i = i + 1;
+            };
+        };
+
+        assert!(length(&u.vals) == m + n + 1, 0);
+        assert!(length(&v.vals) == n, 0);
+        assert!(length(&quotient) == m + 1, 0);
+        
+        /* debug::print(&0); */
+        /* debug::print(&u); */
+        /* debug::print(&v); */
+        
+        // D2
+        let j = m;
+        loop {
+            let u_slice = slice(u, j, j+n);
+            /* debug::print(&1); */
+            /* debug::print(&u_slice); */
+
+            // D3: calculate qhat, rhat
+            // we are trying to divide u_(j+n)...u_j by b.
+            let qhat = (
+                ((*borrow(&u.vals, j + n) as u128) << 64) 
+                + (*borrow(&u.vals, j + n - 1) as u128)
+                ) / (*borrow(&v.vals, n - 1) as u128);
+
+            if (qhat > (MAX_U64 as u128)) {
+                qhat = (MAX_U64 as u128);
+            };
+            
+            let qhatv = mul(v, from_u64((qhat as u64)));
+
+            // inefficient, can optimize later with knuths magic conditions
+            while (gt(qhatv, u_slice)) {
+                qhatv = sub(qhatv, v);
+                qhat = qhat - 1;
+            };
+            
+            // get remainder
+            let r = sub(u_slice, qhatv);
+            
+            // set u_(j+n)...u_j = r
+            {
+                let i = 0;
+                while (i <= n) {
+                    let r_i = if (i < length(&r.vals)) { *borrow(&r.vals, i) } else { 0 };
+                    *borrow_mut(&mut u.vals, j + i) = r_i;
+                    
+                    i = i + 1;
+                }
+            };
+            
+            *borrow_mut(&mut quotient, j) = (qhat as u64);
+            
+            /* debug::print(&2); */
+            /* debug::print(&qhat); */
+            /* debug::print(&u); */
+            /* debug::print(&quotient); */
+
+            if (j == 0) {
+                break
+            };
+            
+            j = j - 1;
+        };
+
+        reduce(BN {
+            vals: quotient
+        })
+    }
+    
+    // inclusive slice of a BN
+    fun slice(a: BN, from: u64, to: u64): BN {
+        let vals = empty();
+        let i = from;
+        while (i <= to) {
+            push_back(&mut vals, *borrow(&a.vals, i));
+            i = i + 1;
+        };
+        
+        BN {
+            vals
+        }
     }
 
 
-    fun leading_zeros(a: BN): u8 {
+    fun leading_zeros(a: BN): u64 {
         if (a == zero()) { 
             return 64
         };
@@ -295,6 +400,9 @@ module suilend::big_number {
     }
     
     fun gt_helper(a: BN, b: BN, equal: bool): bool {
+        a = reduce(a);
+        b = reduce(b);
+
         let a_len = length(&a.vals);
         let b_len = length(&b.vals);
         
@@ -304,6 +412,10 @@ module suilend::big_number {
         
         if (b_len > a_len) {
             return false
+        };
+        
+        if (a_len == 0) {
+            return equal
         };
 
         let i = a_len - 1;
@@ -486,6 +598,13 @@ module suilend::big_number {
         let shifted = shl(a, 5);
         assert!(shifted == from_u64(32), 0)
     }
+
+    #[test]
+    fun test_shl_basic_2() {
+        let a = from_u64(1);
+        let shifted = shl(a, 0);
+        assert!(shifted == from_u64(1), 0)
+    }
     
     #[test]
     fun test_shl_overflow() {
@@ -512,6 +631,10 @@ module suilend::big_number {
             assert!(leading_zeros(a) == 63, (leading_zeros(a) as u64));
         };
         {
+            let a = from_u64(MAX_U64);
+            assert!(leading_zeros(a) == 0, (leading_zeros(a) as u64));
+        };
+        {
             let a = from_le_2_unreduced(1, 0);
             assert!(leading_zeros(a) == 63 + 64, (leading_zeros(a) as u64));
         };
@@ -530,6 +653,34 @@ module suilend::big_number {
         {
             let a = from_le_2(3, 4);
             assert!(div_small(a, 45) == from_u64(1639710584329737921), 0);
+        };
+    }
+    
+    #[test]
+    fun test_div_knuth() {
+        {
+            let a = from_le_3(0, 0, 1);
+            let b = from_u64(MAX_U64);
+            let quotient = div_knuth(a, b);
+            assert!(quotient == from_le_2(1, 1), 0);
+        };
+        {
+            let a = from_le_4(0, 0, 0, MAX_U64);
+            let b = from_le_2(0, MAX_U64);
+            let quotient = div_knuth(a, b);
+            assert!(quotient == from_le_3(0, 0, 1), 0);
+        };
+        {
+            let a = from_le_4(1, 2, 3, MAX_U64);
+            let b = from_le_2(MAX_U64, MAX_U64);
+            let quotient = div_knuth(a, b);
+            assert!(quotient == from_le_3(4, 18446744073709551615, 0), 0);
+        };
+        {
+            let a = from_le_4(0, 0, 0, 1 << 32);
+            let b = from_le_2(45, MAX_U64);
+            let quotient = div_knuth(a, b);
+            assert!(quotient == from_le_2(4294967295, 4294967296), 0);
         };
     }
 
