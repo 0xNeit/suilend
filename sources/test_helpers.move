@@ -24,7 +24,7 @@ module suilend::test_helpers {
     const MIST_TO_SUI: u64 = 1000000000;
     
     // various helper functions to abstract away all the object taking and returning
-    fun update_time(scenario: &mut Scenario, owner: address, new_time: u64) {
+    public fun update_time(scenario: &mut Scenario, owner: address, new_time: u64) {
         test_scenario::next_tx(scenario, &owner);
         {
             let time_wrapper = test_scenario::take_shared<Time>(scenario);
@@ -35,7 +35,7 @@ module suilend::test_helpers {
         }
     }
     
-    fun add_price_info<T>(
+    public fun add_price_info<T>(
         scenario: &mut Scenario,
         owner: address,
         price_base: u64,
@@ -63,7 +63,7 @@ module suilend::test_helpers {
         }
     }
 
-    fun update_price<T>(
+    public fun update_price<T>(
         scenario: &mut Scenario, 
         owner: address,
         price_base: u64,
@@ -97,7 +97,7 @@ module suilend::test_helpers {
         }
     }
 
-   fun reset_stats<P>(
+   public fun reset_stats<P>(
         scenario: &mut Scenario,
         obligation_owner: address
     ) {
@@ -126,7 +126,7 @@ module suilend::test_helpers {
         };
     }
      
-    fun update_stats_deposit<P, T>(
+    public fun update_stats_deposit<P, T>(
         scenario: &mut Scenario,
         obligation_owner: address
     ) {
@@ -178,7 +178,7 @@ module suilend::test_helpers {
         };
     }
 
-    fun update_stats_borrow<P, T>(
+    public fun update_stats_borrow<P, T>(
         scenario: &mut Scenario,
         obligation_owner: address
     ) {
@@ -229,7 +229,7 @@ module suilend::test_helpers {
         };
     }
     
-    fun create_price_cache(scenario: &mut Scenario, owner: address) {
+    public fun create_price_cache(scenario: &mut Scenario, owner: address) {
         test_scenario::next_tx(scenario, &owner);
         {
             let time_wrapper = test_scenario::take_shared<Time>(scenario);
@@ -241,7 +241,7 @@ module suilend::test_helpers {
         };
     }
     
-    fun create_lending_market<P: drop>(scenario: &mut Scenario, witness: P, owner: address) {
+    public fun create_lending_market<P: drop>(scenario: &mut Scenario, witness: P, owner: address) {
         test_scenario::next_tx(scenario, &owner);
         {
             let time_wrapper = test_scenario::take_shared<Time>(scenario);
@@ -262,14 +262,14 @@ module suilend::test_helpers {
         }
     }
     
-    fun create_time(scenario: &mut Scenario, owner: address, start_time: u64) {
+    public fun create_time(scenario: &mut Scenario, owner: address, start_time: u64) {
         test_scenario::next_tx(scenario, &owner);
         {
             time::new(start_time, test_scenario::ctx(scenario));
         }
     }
     
-    fun add_reserve<P, T>(scenario: &mut Scenario, owner: address) {
+    public fun add_reserve<P, T>(scenario: &mut Scenario, owner: address) {
         test_scenario::next_tx(scenario, &owner);
         {
             let admin_cap = test_scenario::take_owned<AdminCap<P>>(scenario);
@@ -288,7 +288,7 @@ module suilend::test_helpers {
         }
     }
 
-    fun deposit_reserve_liquidity<P, T>(scenario: &mut Scenario, owner: address, amount: u64): Coin<CToken<P, T>> {
+    public fun deposit_reserve_liquidity<P, T>(scenario: &mut Scenario, owner: address, amount: u64): Coin<CToken<P, T>> {
         test_scenario::next_tx(scenario, &owner);
         {
             let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
@@ -320,7 +320,7 @@ module suilend::test_helpers {
         test_scenario::take_owned<Coin<CToken<P, T>>>(scenario)
     }
     
-    fun create_obligation<P>(scenario: &mut Scenario, owner: address) {
+    public fun create_obligation<P>(scenario: &mut Scenario, owner: address) {
         test_scenario::next_tx(scenario, &owner);
         {
             let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
@@ -336,7 +336,7 @@ module suilend::test_helpers {
         };
     }
 
-    fun add_deposit_info_to_obligation<P, T>(scenario: &mut Scenario, owner: address) {
+    public fun add_deposit_info_to_obligation<P, T>(scenario: &mut Scenario, owner: address) {
         test_scenario::next_tx(scenario, &owner); 
         {
             let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
@@ -356,7 +356,7 @@ module suilend::test_helpers {
         };
     }
 
-    fun add_borrow_info_to_obligation<P, T>(scenario: &mut Scenario, owner: address) {
+    public fun add_borrow_info_to_obligation<P, T>(scenario: &mut Scenario, owner: address) {
         test_scenario::next_tx(scenario, &owner); 
         {
             let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
@@ -376,7 +376,7 @@ module suilend::test_helpers {
         };
     }
     
-    fun deposit_ctokens_into_obligation<P, T>(
+    public fun deposit_ctokens_into_obligation<P, T>(
         scenario: &mut Scenario, 
         owner: address, 
         ctokens: Coin<CToken<P, T>>
@@ -385,6 +385,9 @@ module suilend::test_helpers {
         {
             let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
             let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
+
+            let reserve_info = test_scenario::take_child_object<LendingMarket<P>, ReserveInfo<P, T>>(
+                scenario, lending_market);
 
             let time_wrapper = test_scenario::take_shared<Time>(scenario);
             let time = test_scenario::borrow_mut(&mut time_wrapper);
@@ -398,6 +401,7 @@ module suilend::test_helpers {
                 
             lending_market::deposit_ctokens(
                 lending_market,
+                &reserve_info,
                 &mut obligation,
                 &mut deposit_info,
                 time,
@@ -409,10 +413,11 @@ module suilend::test_helpers {
             test_scenario::return_shared(scenario, time_wrapper);
             test_scenario::return_owned(scenario, obligation);
             test_scenario::return_owned(scenario, deposit_info);
+            test_scenario::return_owned(scenario, reserve_info);
         }
     }
 
-    fun borrow<P, T>(
+    public fun borrow<P, T>(
         scenario: &mut Scenario, 
         owner: address, 
         borrow_amount: u64
@@ -502,8 +507,8 @@ module suilend::test_helpers {
         
         // try to borrow some coins
         add_borrow_info_to_obligation<POOLEY, SUI>(scenario, rando_1);
-        let coins = borrow<POOLEY, SUI>(scenario, rando_1, 100 * MIST_TO_SUI);
-        assert!(coin::value(&coins) == 100 * MIST_TO_SUI, coin::value(&coins));
+        let coins = borrow<POOLEY, SUI>(scenario, rando_1, 80 * MIST_TO_SUI);
+        assert!(coin::value(&coins) == 80 * MIST_TO_SUI, coin::value(&coins) / MIST_TO_SUI);
         coin::destroy_for_testing(coins);
         
         // refresh obligation

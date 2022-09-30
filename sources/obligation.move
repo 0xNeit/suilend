@@ -6,7 +6,7 @@
 module suilend::obligation {
     use sui::object::{Self, ID, UID};
     use sui::balance::{Self, Balance};
-    use suilend::decimal::{Decimal, Self, add, sub, mul, div, le};
+    use suilend::decimal::{Decimal, Self, add, sub, mul, div, le, from_percent};
     use sui::vec_set::{Self, VecSet};
     use sui::tx_context::{Self, TxContext};
     use suilend::oracle::{Self, PriceInfo};
@@ -29,6 +29,9 @@ module suilend::obligation {
     const EWithdrawIsTooLarge: u64 = 10;
     
     const PRICE_STALENESS_THRESHOLD_S: u64 = 30;
+
+    const MAX_LOAN_TO_VALUE_PCT: u64 = 80;
+    const LIQUIDATION_THRESHOLD_PCT: u64 = 90;
     
     struct Obligation<phantom P> has key, store {
         id: UID,
@@ -77,6 +80,7 @@ module suilend::obligation {
         unhandled_borrows: VecSet<ID>,
     }
     
+    /* entry functions */
     public fun create_obligation<P>(owner: address, cur_time: u64, ctx: &mut TxContext): Obligation<P> {
         Obligation<P> {
             id: object::new(ctx),
@@ -98,11 +102,14 @@ module suilend::obligation {
         }
     }
     
-    // FIXME: i need the reserve here too, otherwise users can deposit assets that we don't support
+    // deposit ctokens into obligation. it's not difficult to extend this to deposit non-ctokens as well,
+    // if users want that functionality. similar to "protected collateral" in euler finance.
     public fun deposit<P, T>(
         obligation: &mut Obligation<P>, 
-        liquidity: Balance<T>, 
-        deposit: &mut DepositInfo<T>,
+        // this is here to make sure the user doesn't deposit any unsupported tokens
+        _reserve: &Reserve<P, T>,
+        liquidity: Balance<CToken<P, T>>, 
+        deposit: &mut DepositInfo<CToken<P, T>>,
         ctx: &mut TxContext
     ) {
         assert!(obligation.owner == tx_context::sender(ctx), EUnauthorized);
@@ -125,18 +132,27 @@ module suilend::obligation {
         assert!(obligation.owner == tx_context::sender(ctx), EUnauthorized);
         assert!(is_stats_valid(obligation, cur_time), EInvalidStats);
         
+        // we borrow first so the cumulative borrow rate gets updated
+        let borrow_balance = reserve::borrow_liquidity(reserve, cur_time, borrow_amount);
+        
         // check that we don't exceed our borrow limits
         let borrow_usd_value = oracle::market_value(price_info, borrow_amount);
         let new_borrow_usd_value = add(borrow_usd_value, obligation.stats.usd_borrow_value);
-        assert!(le(new_borrow_usd_value, obligation.stats.usd_deposit_value), EBorrowIsTooLarge);
+        assert!(
+            le(
+                new_borrow_usd_value, 
+                mul(obligation.stats.usd_deposit_value, from_percent(MAX_LOAN_TO_VALUE_PCT))
+            ),
+            EBorrowIsTooLarge
+        );
         
         // update state 
         borrow_info.borrowed_amount = add(borrow_info.borrowed_amount, decimal::from(borrow_amount));
         borrow_info.cumulative_borrow_rate_snapshot = reserve::cumulative_borrow_rate(reserve);
          
         obligation.seqnum = obligation.seqnum + 1;
-
-        reserve::borrow_liquidity(reserve, cur_time, borrow_amount)
+        
+        borrow_balance
     }
 
     public fun withdraw<P, T>(
@@ -153,7 +169,13 @@ module suilend::obligation {
         // check that we don't exceed our borrow limits
         let withdraw_usd_value = oracle::market_value(price_info, withdraw_amount);
         let new_usd_deposit_value = sub(obligation.stats.usd_deposit_value, withdraw_usd_value);
-        assert!(le(obligation.stats.usd_borrow_value, new_usd_deposit_value), EWithdrawIsTooLarge);
+        assert!(
+            le(
+                obligation.stats.usd_borrow_value,
+                mul(new_usd_deposit_value, from_percent(MAX_LOAN_TO_VALUE_PCT))
+            ),
+            EBorrowIsTooLarge
+        );
         
         obligation.seqnum = obligation.seqnum + 1;
 
@@ -169,6 +191,7 @@ module suilend::obligation {
         ctx: &mut TxContext
     ) {
         assert!(obligation.owner == tx_context::sender(ctx), EUnauthorized);
+        // not entirely sure we need this check but better safe than sorry.
         assert!(is_stats_valid(obligation, cur_time), EInvalidStats);
         
         borrow_info.borrowed_amount = sub(

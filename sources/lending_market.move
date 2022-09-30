@@ -146,6 +146,7 @@ module suilend::lending_market {
     
     public entry fun deposit_ctokens<P, T>(
         lending_market: &mut LendingMarket<P>,
+        reserve_info: &ReserveInfo<P, T>,
         obligation: &mut Obligation<P>,
         deposit_info: &mut DepositInfo<CToken<P, T>>,
         time: &Time,
@@ -155,6 +156,7 @@ module suilend::lending_market {
         assert!(object::id(time) == lending_market.time_id, EInvalidTime);
         obligation::deposit(
             obligation,
+            &reserve_info.reserve,
             coin::into_balance(deposit),
             deposit_info,
             ctx
