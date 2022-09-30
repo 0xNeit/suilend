@@ -180,7 +180,7 @@ module suilend::lending_market {
             obligation,
             borrow_info,
             &mut reserve_info.reserve,
-            time::get_epoch_s(time),
+            time,
             price_info,
             borrow_amount,
             ctx
@@ -189,6 +189,59 @@ module suilend::lending_market {
         transfer::transfer(
             coin::from_balance(borrowed_balance, ctx),
             tx_context::sender(ctx)
+        );
+    }
+
+    public entry fun withdraw<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_info: &mut ReserveInfo<P, T>,
+        obligation: &mut Obligation<P>,
+        deposit_info: &mut DepositInfo<CToken<P, T>>,
+        time: &Time,
+        price_info: &PriceInfo<T>,
+        borrow_amount: u64,
+        ctx: &mut TxContext
+    ) {
+        assert!(object::id(time) == lending_market.time_id, EInvalidTime);
+        assert!(oracle::price_cache_id(price_info) == lending_market.price_cache_id, EInvalidPrice);
+
+        let withdraw_balance = obligation::withdraw(
+            obligation,
+            deposit_info,
+            &mut reserve_info.reserve,
+            time::get_epoch_s(time),
+            price_info,
+            borrow_amount,
+            ctx
+        );
+        
+        transfer::transfer(
+            coin::from_balance(withdraw_balance, ctx),
+            tx_context::sender(ctx)
+        );
+    }
+
+    public entry fun repay<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_info: &mut ReserveInfo<P, T>,
+        obligation: &mut Obligation<P>,
+        borrow_info: &mut BorrowInfo<T>,
+        time: &Time,
+        price_info: &PriceInfo<T>,
+        repay_amount: Coin<T>,
+        ctx: &mut TxContext
+    ) {
+        assert!(object::id(time) == lending_market.time_id, EInvalidTime);
+        assert!(oracle::price_cache_id(price_info) == lending_market.price_cache_id, EInvalidPrice);
+
+        obligation::repay(
+            obligation,
+            borrow_info,
+            &mut reserve_info.reserve,
+            time,
+            coin::into_balance(repay_amount),
+            price_info,
+            ctx
         );
     }
     

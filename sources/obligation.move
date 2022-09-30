@@ -6,7 +6,7 @@
 module suilend::obligation {
     use sui::object::{Self, ID, UID};
     use sui::balance::{Self, Balance};
-    use suilend::decimal::{Decimal, Self, add, sub, mul, div, le, from_percent};
+    use suilend::decimal::{Decimal, Self, add, sub, mul, div, le, from_percent, from, to_u64_floor};
     use sui::vec_set::{Self, VecSet};
     use sui::tx_context::{Self, TxContext};
     use suilend::oracle::{Self, PriceInfo};
@@ -27,6 +27,7 @@ module suilend::obligation {
     const EBorrowIsTooLarge: u64 = 8;
     const EUnauthorized: u64 = 9;
     const EWithdrawIsTooLarge: u64 = 10;
+    const ERepayIsTooLarge: u64 = 11;
     
     const PRICE_STALENESS_THRESHOLD_S: u64 = 30;
 
@@ -124,16 +125,20 @@ module suilend::obligation {
         obligation: &mut Obligation<P>, 
         borrow_info: &mut BorrowInfo<T>, 
         reserve: &mut Reserve<P, T>, 
-        cur_time: u64, 
+        time: &Time, 
         price_info: &PriceInfo<T>, 
         borrow_amount: u64,
         ctx: &mut TxContext
     ): Balance<T> {
         assert!(obligation.owner == tx_context::sender(ctx), EUnauthorized);
-        assert!(is_stats_valid(obligation, cur_time), EInvalidStats);
-        
-        // we borrow first so the cumulative borrow rate gets updated
-        let borrow_balance = reserve::borrow_liquidity(reserve, cur_time, borrow_amount);
+        assert!(is_stats_valid(obligation, time::get_epoch_s(time)), EInvalidStats);
+        update_stats_borrow(
+            obligation,
+            borrow_info,
+            time,
+            reserve,
+            price_info
+        );
         
         // check that we don't exceed our borrow limits
         let borrow_usd_value = oracle::market_value(price_info, borrow_amount);
@@ -148,58 +153,72 @@ module suilend::obligation {
         
         // update state 
         borrow_info.borrowed_amount = add(borrow_info.borrowed_amount, decimal::from(borrow_amount));
-        borrow_info.cumulative_borrow_rate_snapshot = reserve::cumulative_borrow_rate(reserve);
-         
         obligation.seqnum = obligation.seqnum + 1;
         
-        borrow_balance
+        reserve::borrow_liquidity(reserve, time::get_epoch_s(time), borrow_amount)
     }
 
     public fun withdraw<P, T>(
         obligation: &mut Obligation<P>, 
-        deposit_info: &mut DepositInfo<T>, 
+        deposit_info: &mut DepositInfo<CToken<P, T>>, 
+        reserve: &mut Reserve<P, T>,
         cur_time: u64, 
         price_info: &PriceInfo<T>, 
-        withdraw_amount: u64,
+        withdraw_ctoken_amount: u64,
         ctx: &mut TxContext
-    ): Balance<T> {
+    ): Balance<CToken<P, T>> {
         assert!(obligation.owner == tx_context::sender(ctx), EUnauthorized);
         assert!(is_stats_valid(obligation, cur_time), EInvalidStats);
+        reserve::compound_debt_and_interest(reserve, cur_time);
         
         // check that we don't exceed our borrow limits
-        let withdraw_usd_value = oracle::market_value(price_info, withdraw_amount);
+        let withdraw_liquidity_amount = to_u64_floor(mul(
+            reserve::ctoken_exchange_rate(reserve),
+            from(withdraw_ctoken_amount)
+        ));
+
+        let withdraw_usd_value = oracle::market_value(price_info, withdraw_liquidity_amount);
         let new_usd_deposit_value = sub(obligation.stats.usd_deposit_value, withdraw_usd_value);
+
         assert!(
             le(
                 obligation.stats.usd_borrow_value,
                 mul(new_usd_deposit_value, from_percent(MAX_LOAN_TO_VALUE_PCT))
             ),
-            EBorrowIsTooLarge
+            EWithdrawIsTooLarge
         );
         
         obligation.seqnum = obligation.seqnum + 1;
 
-        balance::split(&mut deposit_info.balance, withdraw_amount)
+        balance::split(&mut deposit_info.balance, withdraw_ctoken_amount)
     }
 
     public fun repay<P, T>(
         obligation: &mut Obligation<P>, 
         borrow_info: &mut BorrowInfo<T>, 
         reserve: &mut Reserve<P, T>, 
-        cur_time: u64,
+        time: &Time,
         repay_balance: Balance<T>,
+        price_info: &PriceInfo<T>,
         ctx: &mut TxContext
     ) {
         assert!(obligation.owner == tx_context::sender(ctx), EUnauthorized);
-        // not entirely sure we need this check but better safe than sorry.
-        assert!(is_stats_valid(obligation, cur_time), EInvalidStats);
+        assert!(is_stats_valid(obligation, time::get_epoch_s(time)), EInvalidStats);
+
+        update_stats_borrow(
+            obligation,
+            borrow_info,
+            time,
+            reserve,
+            price_info
+        );
         
         borrow_info.borrowed_amount = sub(
             borrow_info.borrowed_amount,
             decimal::from(balance::value(&repay_balance))
         );
 
-        reserve::repay_liquidity(reserve, cur_time, repay_balance);
+        reserve::repay_liquidity(reserve, time::get_epoch_s(time), repay_balance);
         obligation.seqnum = obligation.seqnum + 1;
     }
     
@@ -235,8 +254,7 @@ module suilend::obligation {
         vec_set::insert(&mut obligation.borrows, object::id(&borrow));
         transfer::transfer_to_object(borrow, obligation);
     }
-    
-    
+
     public fun reset_stats<P>(obligation: &mut Obligation<P>, time: &Time) {
         assert!(obligation.seqnum != obligation.stats.seqnum, ESeqnumStillValid);
         

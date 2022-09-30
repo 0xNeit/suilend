@@ -48,6 +48,14 @@ module suilend::decimal {
 
         big_number::to_u64(value)
     }
+
+    // FIXME: this is wrong.
+    public fun to_u64_floor(d: Decimal): u64 {
+        let Decimal { value } = d;
+        value = big_number::div(value, big_number::from_u64(WAD));
+
+        big_number::to_u64(value)
+    }
     
     public fun to_bps(d: Decimal): u64 {
         let Decimal { value } = d;

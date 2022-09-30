@@ -433,7 +433,7 @@ module suilend::big_number {
             let a_i = *borrow(&a.vals, i);
             let b_i = *borrow(&b.vals, i);
 
-            if ((!equal && a_i > b_i) || (equal && a_i >= b_i)) {
+            if (a_i > b_i) {
                 return true
             };
 
@@ -442,7 +442,7 @@ module suilend::big_number {
             };
             
             if (i == 0) {
-                return false
+                return equal
             };
 
             i = i - 1;
@@ -543,6 +543,7 @@ module suilend::big_number {
     #[test]
     fun test_le() {
         assert!(le(zero(), from_le_3(0, 1, 0)), 0);
+        assert!(!le(from_le_2(9704189641294348288, 32), from_le_2(9704189633294348288, 32)), 0);
     }
     
     #[test]

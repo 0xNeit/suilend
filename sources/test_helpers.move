@@ -411,6 +411,58 @@ module suilend::test_helpers {
         }
     }
 
+    public fun repay<P, T>(
+        scenario: &mut Scenario, 
+        owner: address, 
+        repay_amount: Coin<T>
+    ) {
+        test_scenario::next_tx(scenario, &owner);
+        {
+            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
+
+            let time_wrapper = test_scenario::take_shared<Time>(scenario);
+            let time = test_scenario::borrow_mut(&mut time_wrapper);
+
+            let obligation = test_scenario::take_child_object<LendingMarket<P>, Obligation<P>>(
+                scenario, lending_market);
+
+            let reserve_info = test_scenario::take_child_object<LendingMarket<P>, ReserveInfo<P, T>>(
+                scenario, lending_market);
+
+            let borrow_info = test_scenario::take_child_object<
+                Obligation<P>, 
+                BorrowInfo<T>>(scenario, &mut obligation);
+
+            let price_cache_wrapper = test_scenario::take_shared<PriceCache>(scenario);
+            let price_cache = test_scenario::borrow_mut(&mut price_cache_wrapper);
+
+            let price_info = test_scenario::take_child_object<
+                PriceCache, 
+                PriceInfo<T>>(scenario, price_cache);
+                
+            lending_market::repay(
+                lending_market,
+                &mut reserve_info,
+                &mut obligation,
+                &mut borrow_info,
+                time,
+                &price_info,
+                repay_amount,
+                test_scenario::ctx(scenario)
+            );
+
+            test_scenario::return_shared(scenario, lending_market_wrapper);
+            test_scenario::return_shared(scenario, time_wrapper);
+            test_scenario::return_shared(scenario, price_cache_wrapper);
+
+            test_scenario::return_owned(scenario, price_info);
+            test_scenario::return_owned(scenario, obligation);
+            test_scenario::return_owned(scenario, borrow_info);
+            test_scenario::return_owned(scenario, reserve_info);
+        };
+    }
+
     public fun borrow<P, T>(
         scenario: &mut Scenario, 
         owner: address, 
@@ -464,5 +516,60 @@ module suilend::test_helpers {
 
         test_scenario::next_tx(scenario, &owner);
         test_scenario::take_last_created_owned<Coin<T>>(scenario)
+    }
+
+    public fun withdraw<P, T>(
+        scenario: &mut Scenario, 
+        owner: address, 
+        withdraw_amount: u64
+    ): Coin<CToken<P, T>> {
+        test_scenario::next_tx(scenario, &owner);
+        {
+            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
+
+            let time_wrapper = test_scenario::take_shared<Time>(scenario);
+            let time = test_scenario::borrow_mut(&mut time_wrapper);
+
+            let obligation = test_scenario::take_child_object<LendingMarket<P>, Obligation<P>>(
+                scenario, lending_market);
+
+            let reserve_info = test_scenario::take_child_object<LendingMarket<P>, ReserveInfo<P, T>>(
+                scenario, lending_market);
+
+            let deposit_info = test_scenario::take_child_object<
+                Obligation<P>, 
+                DepositInfo<CToken<P,T>>>(scenario, &mut obligation);
+
+            let price_cache_wrapper = test_scenario::take_shared<PriceCache>(scenario);
+            let price_cache = test_scenario::borrow_mut(&mut price_cache_wrapper);
+
+            let price_info = test_scenario::take_child_object<
+                PriceCache, 
+                PriceInfo<T>>(scenario, price_cache);
+                
+            lending_market::withdraw(
+                lending_market,
+                &mut reserve_info,
+                &mut obligation,
+                &mut deposit_info,
+                time,
+                &price_info,
+                withdraw_amount,
+                test_scenario::ctx(scenario)
+            );
+
+            test_scenario::return_shared(scenario, lending_market_wrapper);
+            test_scenario::return_shared(scenario, time_wrapper);
+            test_scenario::return_shared(scenario, price_cache_wrapper);
+
+            test_scenario::return_owned(scenario, price_info);
+            test_scenario::return_owned(scenario, obligation);
+            test_scenario::return_owned(scenario, deposit_info);
+            test_scenario::return_owned(scenario, reserve_info);
+        };
+
+        test_scenario::next_tx(scenario, &owner);
+        test_scenario::take_last_created_owned<Coin<CToken<P, T>>>(scenario)
     }
 }
