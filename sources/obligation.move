@@ -132,13 +132,16 @@ module suilend::obligation {
     ): Balance<T> {
         assert!(obligation.owner == tx_context::sender(ctx), EUnauthorized);
         assert!(is_stats_valid(obligation, time::get_epoch_s(time)), EInvalidStats);
-        update_stats_borrow(
-            obligation,
-            borrow_info,
-            time,
-            reserve,
-            price_info
+        
+        let borrowed_liquidity = reserve::borrow_liquidity(reserve, time::get_epoch_s(time), borrow_amount);
+        let new_cumulative_borrow_rate = reserve::cumulative_borrow_rate(reserve);
+
+        // refresh interest
+        borrow_info.borrowed_amount = mul(
+            div(borrow_info.borrowed_amount, borrow_info.cumulative_borrow_rate_snapshot),
+            new_cumulative_borrow_rate
         );
+        borrow_info.cumulative_borrow_rate_snapshot = new_cumulative_borrow_rate;
         
         // check that we don't exceed our borrow limits
         let borrow_usd_value = oracle::market_value(price_info, borrow_amount);
@@ -154,8 +157,7 @@ module suilend::obligation {
         // update state 
         borrow_info.borrowed_amount = add(borrow_info.borrowed_amount, decimal::from(borrow_amount));
         obligation.seqnum = obligation.seqnum + 1;
-        
-        reserve::borrow_liquidity(reserve, time::get_epoch_s(time), borrow_amount)
+        borrowed_liquidity
     }
 
     public fun withdraw<P, T>(
@@ -171,6 +173,9 @@ module suilend::obligation {
         assert!(is_stats_valid(obligation, cur_time), EInvalidStats);
         reserve::compound_debt_and_interest(reserve, cur_time);
         
+        // FIXME: stats valid can be slightly stale which can cause issues. can be fixed
+        // after "dynamic access to child objects lands"
+
         // check that we don't exceed our borrow limits
         let withdraw_liquidity_amount = to_u64_floor(mul(
             reserve::ctoken_exchange_rate(reserve),
@@ -199,20 +204,14 @@ module suilend::obligation {
         reserve: &mut Reserve<P, T>, 
         time: &Time,
         repay_balance: Balance<T>,
-        price_info: &PriceInfo<T>,
+        _price_info: &PriceInfo<T>,
         ctx: &mut TxContext
     ) {
         assert!(obligation.owner == tx_context::sender(ctx), EUnauthorized);
         assert!(is_stats_valid(obligation, time::get_epoch_s(time)), EInvalidStats);
 
-        update_stats_borrow(
-            obligation,
-            borrow_info,
-            time,
-            reserve,
-            price_info
-        );
-        
+        // FIXME this is slightly incorrect bc the stats object can be a little bit stale
+        // i should be refreshing all interest stuff here. which can be done soon.
         borrow_info.borrowed_amount = sub(
             borrow_info.borrowed_amount,
             decimal::from(balance::value(&repay_balance))
@@ -247,7 +246,7 @@ module suilend::obligation {
             id: object::new(ctx),
             obligation_id: object::id(obligation),
             borrowed_amount: decimal::zero(),
-            cumulative_borrow_rate_snapshot: decimal::zero(),
+            cumulative_borrow_rate_snapshot: decimal::one(),
             usd_value: decimal::zero(),
         };
         
