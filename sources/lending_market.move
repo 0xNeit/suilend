@@ -43,6 +43,21 @@ module suilend::lending_market {
         reserve: Reserve<P, T>
     } 
     
+    struct ObligationCap<phantom P> has key {
+        id: UID,
+        obligation_id: ID
+    }
+    
+    public fun obligation_id<P>(o: &ObligationCap<P>): ID {
+        o.obligation_id
+    }
+    
+    #[test_only]
+    public fun destroy_obligation_cap_for_testing<P>(o: ObligationCap<P>) {
+        let ObligationCap { id, obligation_id: _obligation_id } = o;
+        object::delete(id);
+    }
+    
     public entry fun create_lending_market<P: drop>(
         _witness: P, 
         time: &Time,
@@ -125,6 +140,13 @@ module suilend::lending_market {
             ctx
         );
         
+        transfer::transfer(
+            ObligationCap<P> { 
+                id: object::new(ctx), 
+                obligation_id: object::id(&obligation) 
+            }, 
+            tx_context::sender(ctx)
+        );
         transfer::transfer_to_object(obligation, lending_market);
     }
     
@@ -243,6 +265,32 @@ module suilend::lending_market {
             price_info,
             ctx
         );
+    }
+    
+    public entry fun liquidate<P, T1, T2>(
+        lending_market: &mut LendingMarket<P>,
+        violator: &mut Obligation<P>,
+        violator_loan: &mut BorrowInfo<T1>,
+        violator_collateral: &mut DepositInfo<CToken<P, T2>>,
+        liquidator: &mut Obligation<P>,
+        liquidator_loan: &mut BorrowInfo<T1>,
+        liquidator_collateral: &mut DepositInfo<CToken<P, T2>>,
+        time: &Time,
+        ctx: &mut TxContext
+    ) {
+        assert!(object::id(time) == lending_market.time_id, EInvalidTime);
+        
+        obligation::liquidate(
+            violator,
+            violator_loan,
+            violator_collateral,
+            liquidator,
+            liquidator_loan,
+            liquidator_collateral,
+            time,
+            ctx
+        );
+
     }
     
     public entry fun reset_stats<P>(

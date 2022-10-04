@@ -6,7 +6,7 @@
 module suilend::obligation {
     use sui::object::{Self, ID, UID};
     use sui::balance::{Self, Balance};
-    use suilend::decimal::{Decimal, Self, add, sub, mul, div, le, from_percent, from, to_u64_floor};
+    use suilend::decimal::{Decimal, Self, ceil, add, sub, mul, div, le, from_percent, from, floor, ge, min, one};
     use sui::vec_set::{Self, VecSet};
     use sui::tx_context::{Self, TxContext};
     use suilend::oracle::{Self, PriceInfo};
@@ -28,11 +28,16 @@ module suilend::obligation {
     const EUnauthorized: u64 = 9;
     const EWithdrawIsTooLarge: u64 = 10;
     const ERepayIsTooLarge: u64 = 11;
+    const EHealthy: u64 = 12;
     
     const PRICE_STALENESS_THRESHOLD_S: u64 = 30;
 
     const MAX_LOAN_TO_VALUE_PCT: u64 = 80;
     const LIQUIDATION_THRESHOLD_PCT: u64 = 90;
+    
+    // percentage of an obligation that can be liquidated at once.
+    const CLOSE_FACTOR_PCT: u64 = 20;
+    const LIQUIDATOR_BONUS_PCT: u64 = 5;
     
     struct Obligation<phantom P> has key, store {
         id: UID,
@@ -79,6 +84,15 @@ module suilend::obligation {
         
         unhandled_deposits: VecSet<ID>,
         unhandled_borrows: VecSet<ID>,
+    }
+    
+    /* getter functions */
+    public fun usd_borrow_value<P>(o: &Obligation<P>): Decimal {
+        o.stats.usd_borrow_value
+    }
+
+    public fun usd_deposit_value<P>(o: &Obligation<P>): Decimal {
+        o.stats.usd_deposit_value
     }
     
     /* entry functions */
@@ -177,7 +191,7 @@ module suilend::obligation {
         // after "dynamic access to child objects lands"
 
         // check that we don't exceed our borrow limits
-        let withdraw_liquidity_amount = to_u64_floor(mul(
+        let withdraw_liquidity_amount = floor(mul(
             reserve::ctoken_exchange_rate(reserve),
             from(withdraw_ctoken_amount)
         ));
@@ -219,6 +233,91 @@ module suilend::obligation {
 
         reserve::repay_liquidity(reserve, time::get_epoch_s(time), repay_balance);
         obligation.seqnum = obligation.seqnum + 1;
+    }
+    
+    /// Transfer part of the violator's debt and collateral to the liquidator. Note that the 
+    /// debt / collateral ratio will likely be greater than allowed LTV, so the liquidator must 
+    /// have some collateral deposited into their obligation beforehand.
+    public fun liquidate<P, T1, T2>(
+        violator: &mut Obligation<P>,
+        violator_loan: &mut BorrowInfo<T1>,
+        violator_collateral: &mut DepositInfo<CToken<P, T2>>,
+        liquidator: &mut Obligation<P>,
+        liquidator_loan: &mut BorrowInfo<T1>,
+        liquidator_collateral: &mut DepositInfo<CToken<P, T2>>,
+        time: &Time,
+        ctx: &mut TxContext
+    ) {
+        assert!(liquidator.owner == tx_context::sender(ctx), EUnauthorized);
+        assert!(is_stats_valid(liquidator, time::get_epoch_s(time)), EInvalidStats);
+        assert!(is_stats_valid(violator, time::get_epoch_s(time)), EInvalidStats);
+        assert!(is_liquidatable(violator, time), EHealthy);
+
+        assert!(violator_loan.obligation_id == object::id(violator), EUnauthorized);
+        assert!(violator_collateral.obligation_id == object::id(violator), EUnauthorized);
+
+        assert!(liquidator_loan.obligation_id == object::id(liquidator), EUnauthorized);
+        assert!(liquidator_collateral.obligation_id == object::id(liquidator), EUnauthorized);
+        
+        // let x% = close factor
+        // x% * obligation.stats.usd_borrow_value is eligible to be repaid
+        // x% * obligation.stats.usd_deposit_value * (1 + LIQUIDATION_BONUS) is eligible to be taken
+        let loan_repay_value_usd = min(
+            mul(violator.stats.usd_borrow_value, from_percent(CLOSE_FACTOR_PCT)),
+            violator_loan.usd_value
+        );
+        let liquidatable_value_usd = mul(
+            loan_repay_value_usd,
+            add(one(), from_percent(LIQUIDATOR_BONUS_PCT))
+        );
+        
+        let (collateral_amount, loan_amount) = {
+            if (le(liquidatable_value_usd, violator_collateral.usd_value)) {
+                let collateral_amount = ceil(mul(
+                    div(liquidatable_value_usd, violator_collateral.usd_value),
+                    from(balance::value(&violator_collateral.balance))
+                ));
+                
+                let loan_amount = floor(mul(
+                    div(loan_repay_value_usd, violator_loan.usd_value),
+                    violator_loan.borrowed_amount
+                ));
+                
+                (collateral_amount, loan_amount)
+            }
+            else { 
+                // lt(violator_collateral.usd_value, liquidatable_value_usd)
+                // collateral_usd_value / (1 + bonus) <= loan_repay_value_usd
+                // collateral_usd_value / (1 + bonus) <= violator_loan.usd_value
+                // collateral_usd_value / (1 + bonus) / violator_loan.usd_value <= 1
+                // repay_pct <= 1
+                let repay_pct = div(
+                    div(violator_collateral.usd_value, add(one(), from_percent(LIQUIDATOR_BONUS_PCT))),
+                    violator_loan.usd_value
+                );
+                let collateral_amount = balance::value(&violator_collateral.balance);
+                let loan_amount = ceil(mul(
+                    repay_pct,
+                    violator_loan.borrowed_amount
+                ));
+                (collateral_amount, loan_amount)
+            }
+        };
+        
+        // transfer loan and collateral to liquidator
+        violator_loan.borrowed_amount = sub(violator_loan.borrowed_amount, from(loan_amount));
+        liquidator_loan.borrowed_amount = add(liquidator_loan.borrowed_amount, from(loan_amount));
+        
+        let collateral = balance::split(&mut violator_collateral.balance, collateral_amount);
+        balance::join(&mut liquidator_collateral.balance, collateral);
+        
+        violator.seqnum = violator.seqnum + 1;
+        liquidator.seqnum = liquidator.seqnum + 1;
+    }
+    
+    public fun is_liquidatable<P>(o: &Obligation<P>, time: &Time): bool {
+        assert!(is_stats_valid(o, time::get_epoch_s(time)), EInvalidStats);
+        ge(o.stats.usd_borrow_value, mul(o.stats.usd_deposit_value, from_percent(LIQUIDATION_THRESHOLD_PCT)))
     }
     
     /* 
@@ -360,9 +459,10 @@ module suilend::obligation {
             &mut obligation.stats.handled_deposits,
             object::id(deposit_info)
         );
-        
     }
     
+    // TODO once dynamic child access comes out, replace all stats stuff with realtime 
+    // obligation refresh
     public fun is_stats_valid<P>(obligation: &Obligation<P>, cur_time: u64): bool {
         obligation.stats.seqnum == obligation.seqnum 
         && (obligation.stats.last_refreshed + PRICE_STALENESS_THRESHOLD_S >= cur_time)

@@ -50,7 +50,15 @@ module suilend::decimal {
     }
 
     // FIXME: this is wrong.
-    public fun to_u64_floor(d: Decimal): u64 {
+    public fun floor(d: Decimal): u64 {
+        let Decimal { value } = d;
+        value = big_number::div(value, big_number::from_u64(WAD));
+
+        big_number::to_u64(value)
+    }
+
+    // FIXME: this is wrong.
+    public fun ceil(d: Decimal): u64 {
         let Decimal { value } = d;
         value = big_number::div(value, big_number::from_u64(WAD));
 
@@ -116,6 +124,14 @@ module suilend::decimal {
 
     public fun le(a: Decimal, b: Decimal): bool {
         big_number::le(a.value, b.value)
+    }
+    
+    public fun min(a: Decimal, b: Decimal): Decimal {
+        if (le(a, b)) { a } else { b }
+    }
+
+    public fun max(a: Decimal, b: Decimal): Decimal {
+        if (ge(a, b)) { a } else { b }
     }
     
     // round to 6 decimal places
