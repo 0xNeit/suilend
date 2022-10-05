@@ -286,11 +286,12 @@ module suilend::obligation {
                 (collateral_amount, loan_amount)
             }
             else { 
-                // lt(violator_collateral.usd_value, liquidatable_value_usd)
-                // collateral_usd_value / (1 + bonus) <= loan_repay_value_usd
-                // collateral_usd_value / (1 + bonus) <= violator_loan.usd_value
-                // collateral_usd_value / (1 + bonus) / violator_loan.usd_value <= 1
-                // repay_pct <= 1
+                // violator_collateral.usd_value < liquidatable_value_usd
+                // -> collateral_usd_value / (1 + bonus) < loan_repay_value_usd
+                // -> collateral_usd_value / (1 + bonus) < violator_loan.usd_value
+                // -> collateral_usd_value / (1 + bonus) / violator_loan.usd_value < 1
+                // -> repay_pct < 1
+                // -> loan_amount < violator_loan.borrowed_amount
                 let repay_pct = div(
                     div(violator_collateral.usd_value, add(one(), from_percent(LIQUIDATOR_BONUS_PCT))),
                     violator_loan.usd_value
