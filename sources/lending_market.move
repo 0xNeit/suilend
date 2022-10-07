@@ -14,7 +14,7 @@ module suilend::lending_market {
     use std::vector;
     use suilend::obligation::{Self, Obligation, BorrowInfo, DepositInfo};
     use suilend::oracle::{Self, PriceCache, PriceInfo};
-    /* use sui::types; */
+    use sui::types;
     
 
     // errors
@@ -59,12 +59,12 @@ module suilend::lending_market {
     }
     
     public entry fun create_lending_market<P: drop>(
-        _witness: P, 
+        witness: P, 
         time: &Time,
         price_cache: &PriceCache,
         ctx: &mut TxContext
     ) {
-        /* assert!(types::is_one_time_witness(&witness), ENotAOneTimeWitness); */
+        assert!(types::is_one_time_witness(&witness), ENotAOneTimeWitness);
 
         let id = object::new(ctx);
         let lending_market = LendingMarket<P> {
