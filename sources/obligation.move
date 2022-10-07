@@ -309,6 +309,9 @@ module suilend::obligation {
         violator_loan.borrowed_amount = sub(violator_loan.borrowed_amount, from(loan_amount));
         liquidator_loan.borrowed_amount = add(liquidator_loan.borrowed_amount, from(loan_amount));
         
+        // TODO make sure the liquidator obligation is healthy! Otherwise the liquidator's obligation
+        // will get liquidated right after.
+        
         let collateral = balance::split(&mut violator_collateral.balance, collateral_amount);
         balance::join(&mut liquidator_collateral.balance, collateral);
         
@@ -322,8 +325,13 @@ module suilend::obligation {
     }
     
     /* 
-        All functions below here are related to updating obligation internal state. This will be heavily
-        refactored once we can dynamically access child objects.
+        All functions below here are related to updating the obligation's Stat object. The 
+        Stat object is used to track obligation health (ie assets.usd_value - liabilities.usd_value) 
+        Since an obligation can have multiple deposits and borrows, it's (currently!) impossible to 
+        update the Stats object all in 1 transaction, and it has to be split across multiple txes.
+
+        This will all be removed once we can dynamically acceess child objects. Once that is enabled,
+        I can update an obligation's health right before any action (eg borrow, withdraw, liquidate)
     */
     public fun add_deposit_info<P, T>(obligation: &mut Obligation<P>, ctx: &mut TxContext) {
         assert!(obligation.owner == tx_context::sender(ctx), EUnauthorized);

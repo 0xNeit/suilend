@@ -1,3 +1,5 @@
+/// In it's current state, kind of overkill to have a seperate module for this. But I was thinking
+/// of allowing different interest rate functions (eg linear, piecewise, or some kind of PID controller)
 module suilend::interest_rate {
     use suilend::decimal::{Self, Decimal};
 

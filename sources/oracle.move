@@ -1,3 +1,5 @@
+/// This module keeps track of token prices. I'm not sure what the oracle landscape will look like,
+/// but until then, we'll have a client binary that updates the PriceCache object with valid prices.
 module suilend::oracle {
     use suilend::decimal::{Self, Decimal, div, mul, pow};
     use sui::object::{Self, ID, UID};

@@ -1,9 +1,4 @@
-/// A lending market holds many reserves. Assume base currency is USD. 
-
-// notes: as of now there's no granular time module in the move VM. so the lending market owner
-// will have to update the time via a function call. if the owner doesn't do this, the contract
-// can be exploited.
-
+/// A LendingMarket owns many reserves and obligations.
 module suilend::lending_market {
     use sui::object::{Self, ID, UID};
     use sui::tx_context::{Self, TxContext};
@@ -16,7 +11,6 @@ module suilend::lending_market {
     use suilend::oracle::{Self, PriceCache, PriceInfo};
     use sui::types;
     
-
     // errors
     const EInvalidTime: u64 = 0;
     const EInvalidReserve: u64 = 1;
@@ -58,6 +52,7 @@ module suilend::lending_market {
         object::delete(id);
     }
     
+    /// Create a new LendingMarket object.
     public entry fun create_lending_market<P: drop>(
         witness: P, 
         time: &Time,
@@ -78,7 +73,9 @@ module suilend::lending_market {
         transfer::transfer(AdminCap<P> { id: object::new(ctx) }, tx_context::sender(ctx));
     }
     
-    // add reserve
+    /// Add a reserve to a LendingMarket.
+    /// TODO once we can dynamically check child objects, make sure there aren't any
+    /// duplicate reserves
     public entry fun add_reserve<P, T>(
         _: &AdminCap<P>, 
         lending_market: &mut LendingMarket<P>, 
@@ -127,6 +124,7 @@ module suilend::lending_market {
         transfer::transfer(ctokens, tx_context::sender(ctx));
     }
     
+    /// Create an obligation.
     public entry fun create_obligation<P>(
         lending_market: &mut LendingMarket<P>,
         time: &Time,
@@ -150,6 +148,7 @@ module suilend::lending_market {
         transfer::transfer_to_object(obligation, lending_market);
     }
     
+    /// This function will be removed once dynamic child access is available
     public entry fun add_deposit_info_to_obligation<P, T>(
         _lending_market: &mut LendingMarket<P>,
         obligation: &mut Obligation<P>,
@@ -158,6 +157,7 @@ module suilend::lending_market {
         obligation::add_deposit_info<P, T>(obligation, ctx);
     }
 
+    /// This function will be removed once dynamic child access is available
     public entry fun add_borrow_info_to_obligation<P, T>(
         _lending_market: &mut LendingMarket<P>,
         obligation: &mut Obligation<P>,
@@ -166,6 +166,7 @@ module suilend::lending_market {
         obligation::add_borrow_info<P, T>(obligation, ctx);
     }
     
+    /// Deposit CTokens into an obligation
     public entry fun deposit_ctokens<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_info: &ReserveInfo<P, T>,
@@ -185,6 +186,7 @@ module suilend::lending_market {
         );
     }
 
+    /// Borrow coins from a reserve.
     public entry fun borrow<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_info: &mut ReserveInfo<P, T>,
@@ -214,6 +216,7 @@ module suilend::lending_market {
         );
     }
 
+    /// Withdraw funds from an obligation
     public entry fun withdraw<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_info: &mut ReserveInfo<P, T>,
@@ -243,6 +246,7 @@ module suilend::lending_market {
         );
     }
 
+    /// Repay obligation debt.
     public entry fun repay<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_info: &mut ReserveInfo<P, T>,
@@ -267,6 +271,7 @@ module suilend::lending_market {
         );
     }
     
+    /// Liquidate an unhealthy obligation
     public entry fun liquidate<P, T1, T2>(
         lending_market: &mut LendingMarket<P>,
         violator: &mut Obligation<P>,
@@ -293,6 +298,7 @@ module suilend::lending_market {
 
     }
     
+    /// This will be removed once dynamic child access is enabled.
     public entry fun reset_stats<P>(
         _lending_market: &mut LendingMarket<P>,
         obligation: &mut Obligation<P>,
@@ -302,6 +308,7 @@ module suilend::lending_market {
         obligation::reset_stats(obligation, time);
     }
     
+    /// This will be removed once dynamic child access is enabled.
     public entry fun update_stats_deposit<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_info: &mut ReserveInfo<P, T>,
@@ -323,6 +330,7 @@ module suilend::lending_market {
         );
     }
 
+    /// This will be removed once dynamic child access is enabled.
     public entry fun update_stats_borrow<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_info: &mut ReserveInfo<P, T>,

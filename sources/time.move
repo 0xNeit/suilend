@@ -1,5 +1,6 @@
-/// This will be deprecated once Sui has more granular timestamps.
-
+/// Sui has no granular timestamp yet which we really need for interest rate calculations.
+///  so for now, update this Time object with the latest epoch time in seconds. 
+/// This will be done with an off-chain binary.
 module suilend::time {
     use sui::tx_context::{Self, TxContext};
     use sui::object::{Self, UID};

@@ -1,3 +1,5 @@
+/// A Reserve keeps track of a LendingMarket's supplied and borrowed assets for a particular
+/// coin type.
 module suilend::reserve {
     use sui::balance::{Self, Balance, Supply};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div};
@@ -5,7 +7,6 @@ module suilend::reserve {
 
     friend suilend::obligation;
 
-    // TODO use lending market type here as well. ctokens need to be unique per lending_market, reserve pair
     struct CToken<phantom P, phantom T> has drop {}
 
     struct Reserve<phantom P, phantom T> has store {
@@ -46,7 +47,7 @@ module suilend::reserve {
         }
     }
     
-    // computes ctoken / token
+    /// computes ctoken / token ratio
     public fun ctoken_exchange_rate<P, T>(reserve: &Reserve<P, T>): Decimal {
         let available_liquidity = decimal::from(balance::value(&reserve.available_liquidity));
         let ctoken_total_supply = decimal::from(balance::supply_value(&reserve.ctoken_supply));
@@ -127,8 +128,12 @@ module suilend::reserve {
         ensures decimal::raw_val(reserve.cumulative_borrow_rate) >= decimal::WAD;
     }
     
-    // adds liquidity to reserve's supply and creates new ctokens. returns a balance.
-    public fun deposit_liquidity_and_mint_ctokens<P, T>(reserve: &mut Reserve<P, T>, cur_time: u64, liquidity: Balance<T>): Balance<CToken<P, T>> {
+    /// Deposits a user's coins into the reserve and returns a corresponding amount of CTokens.
+    public fun deposit_liquidity_and_mint_ctokens<P, T>(
+        reserve: &mut Reserve<P, T>, 
+        cur_time: u64, 
+        liquidity: Balance<T>
+    ): Balance<CToken<P, T>> {
         compound_debt_and_interest(reserve, cur_time);
 
         let exchange_rate = ctoken_exchange_rate(reserve);
@@ -151,6 +156,7 @@ module suilend::reserve {
         // TODO assert that ctokens * ctoken_ratio <= liquidity amount
     }
     
+    /// Borrow coins from a reserve. Can only be called by an obligation
     public(friend) fun borrow_liquidity<P, T>(
         reserve: &mut Reserve<P, T>, 
         cur_time: u64, 
@@ -162,6 +168,7 @@ module suilend::reserve {
         balance::split(&mut reserve.available_liquidity, amount)
     }
 
+    /// Repay coins to a reserve. Can only be called by an obligation.
     public(friend) fun repay_liquidity<P, T>(
         reserve: &mut Reserve<P, T>, 
         cur_time: u64, 
@@ -177,6 +184,7 @@ module suilend::reserve {
         balance::join(&mut reserve.available_liquidity, amount);
     }
     
+    /// Exchange CTokens for underlying asset + interest.
     public fun redeem_ctokens_for_liquidity<P, T>(reserve: &mut Reserve<P, T>, cur_time: u64, ctokens: Balance<CToken<P, T>>): Balance<T> {
         compound_debt_and_interest(reserve, cur_time);
         

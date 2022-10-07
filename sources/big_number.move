@@ -1,4 +1,5 @@
-//// arbitrary precision little endian integer composed of u64s.
+/// arbitrary precision little endian integer composed of u64s.
+/// I wrote this before I knew that a u256 implementation existed lmao. oh well.
 
 module suilend::big_number {
     use std::vector::{empty, push_back, borrow, length, pop_back, borrow_mut};
