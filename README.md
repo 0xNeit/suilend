@@ -1,6 +1,8 @@
 # Suilend
 Lending protocol on the Sui Blockchain
 
+THIS IS NOT PRODUCTION READY
+
 # Overview of terminology
 
 A LendingMarket object holds many Reserves and Obligations.
