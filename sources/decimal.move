@@ -1,8 +1,5 @@
-/// Defines a fixed-point decimal type with up to 15 digits of decimal precision.
-/// This type will overflow at about 10^20.
-/// FIXME: I should use a u192. This is fine for a prototype
-/// but will definitely have to be fixed before production.
-
+/// Defines a fixed-point decimal type with 18 digits of decimal precision.
+/// Uses the BigNumber module so technically this should never overflow
 module suilend::decimal {
     use suilend::big_number::{Self, BN};
 
