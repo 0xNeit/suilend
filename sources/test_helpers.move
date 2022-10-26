@@ -8,28 +8,43 @@ module suilend::test_helpers {
         Self,
         LendingMarket, 
         AdminCap, 
-        ReserveInfo,
         ObligationCap
     };
     use suilend::obligation::{
-        Obligation,
-        DepositInfo,
-        BorrowInfo
+        Stats
     };
     use sui::test_scenario::{Self, Scenario};
-    use suilend::oracle::{Self, PriceCache, PriceInfo};
+    use suilend::oracle::{Self, PriceCache};
+    use sui::object::{ID};
+    use std::option;
+
+    // time helpers
+    public fun create_time(scenario: &mut Scenario, owner: address, start_time: u64) {
+        test_scenario::next_tx(scenario, owner);
+        {
+            time::new(start_time, test_scenario::ctx(scenario));
+        }
+    }
 
     public fun update_time(scenario: &mut Scenario, owner: address, new_time: u64) {
-        test_scenario::next_tx(scenario, &owner);
+        test_scenario::next_tx(scenario, owner);
         {
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-            time::update_time(time, new_time, test_scenario::ctx(scenario));
-            
-            test_scenario::return_shared(scenario, time_wrapper);
+            let time = test_scenario::take_shared<Time>(scenario);
+            time::update_time(&mut time, new_time, test_scenario::ctx(scenario));
+            test_scenario::return_shared(time);
         }
     }
     
+    public fun create_price_cache(scenario: &mut Scenario, owner: address) {
+        test_scenario::next_tx(scenario, owner);
+        {
+            let time = test_scenario::take_shared<Time>(scenario);
+            oracle::new_price_cache(&mut time, test_scenario::ctx(scenario));
+            test_scenario::return_shared(time);
+        };
+    }
+
+    // price helpers
     public fun add_price_info<T>(
         scenario: &mut Scenario,
         owner: address,
@@ -37,25 +52,22 @@ module suilend::test_helpers {
         price_exp: u64,
         decimals: u64
     ) {
-        test_scenario::next_tx(scenario, &owner);
+        test_scenario::next_tx(scenario, owner);
         {
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-
-            let price_cache_wrapper = test_scenario::take_shared<PriceCache>(scenario);
-            let price_cache = test_scenario::borrow_mut(&mut price_cache_wrapper);
+            let time = test_scenario::take_shared<Time>(scenario);
+            let price_cache = test_scenario::take_shared<PriceCache>(scenario);
             
             oracle::add_price_info<T>(
-                price_cache, 
-                time,
+                &mut price_cache, 
+                &time,
                 price_base,
                 price_exp,
                 decimals,
                 test_scenario::ctx(scenario)
             );
             
-            test_scenario::return_shared(scenario, time_wrapper);
-            test_scenario::return_shared(scenario, price_cache_wrapper);
+            test_scenario::return_shared(time);
+            test_scenario::return_shared(price_cache);
         }
     }
 
@@ -65,348 +77,160 @@ module suilend::test_helpers {
         price_base: u64,
         price_exp: u64
     ) {
-        test_scenario::next_tx(scenario, &owner);
+        test_scenario::next_tx(scenario, owner);
         {
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
+            let time = test_scenario::take_shared<Time>(scenario);
+            let price_cache = test_scenario::take_shared<PriceCache>(scenario);
 
-            let price_cache_wrapper = test_scenario::take_shared<PriceCache>(scenario);
-            let price_cache = test_scenario::borrow_mut(&mut price_cache_wrapper);
-
-            let price_info = test_scenario::take_child_object<
-                PriceCache, 
-                PriceInfo<T>>(scenario, price_cache);
-
-            
-            oracle::update_price_info(
-                price_cache,
-                &mut price_info,
-                time,
+            oracle::update_price<T>(
+                &mut price_cache,
+                &time,
                 price_base,
                 price_exp,
                 test_scenario::ctx(scenario)
             );
             
-            test_scenario::return_owned(scenario, price_info);
-            test_scenario::return_shared(scenario, time_wrapper);
-            test_scenario::return_shared(scenario, price_cache_wrapper);
+            test_scenario::return_shared(time);
+            test_scenario::return_shared(price_cache);
         }
     }
 
-   public fun reset_stats<P>(
-        scenario: &mut Scenario,
-        obligation_owner: address,
-        obligation_cap: &ObligationCap<P>
-    ) {
-        test_scenario::next_tx(scenario, &obligation_owner);
-        {
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
-
-            let obligation = test_scenario::take_child_object_by_id<LendingMarket<P>, Obligation<P>>(
-                scenario, lending_market, lending_market::obligation_id(obligation_cap));
-
-            lending_market::reset_stats(
-                lending_market,
-                &mut obligation,
-                time,
-                test_scenario::ctx(scenario)
-            );
-
-
-            test_scenario::return_owned(scenario, obligation);
-            test_scenario::return_shared(scenario, time_wrapper);
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-        };
-    }
-     
-    public fun update_stats_deposit<P, T>(
-        scenario: &mut Scenario,
-        obligation_owner: address,
-        obligation_cap: &ObligationCap<P>
-    ) {
-        test_scenario::next_tx(scenario, &obligation_owner);
-        {
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-
-            let price_cache_wrapper = test_scenario::take_shared<PriceCache>(scenario);
-            let price_cache = test_scenario::borrow_mut(&mut price_cache_wrapper);
-
-            let price_info = test_scenario::take_child_object<
-                PriceCache, 
-                PriceInfo<T>>(scenario, price_cache);
-
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
-
-            let reserve_info = test_scenario::take_child_object<LendingMarket<P>, ReserveInfo<P, T>>(
-                scenario, lending_market);
-
-            let obligation = test_scenario::take_child_object_by_id<LendingMarket<P>, Obligation<P>>(
-                scenario, lending_market, lending_market::obligation_id(obligation_cap));
-
-            let deposit_info = test_scenario::take_child_object<
-                Obligation<P>, 
-                DepositInfo<CToken<P, T>>>(scenario, &mut obligation);
-            
-            lending_market::update_stats_deposit(
-                lending_market,
-                &mut reserve_info,
-                &mut obligation,
-                &mut deposit_info,
-                time,
-                &price_info,
-                test_scenario::ctx(scenario)
-            );
-
-
-            test_scenario::return_owned(scenario, deposit_info);
-            test_scenario::return_owned(scenario, obligation);
-
-            test_scenario::return_owned(scenario, price_info);
-            test_scenario::return_shared(scenario, price_cache_wrapper);
-
-            test_scenario::return_owned(scenario, reserve_info);
-            test_scenario::return_shared(scenario, time_wrapper);
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-        };
-    }
-
-    public fun update_stats_borrow<P, T>(
-        scenario: &mut Scenario,
-        obligation_owner: address,
-        obligation_cap: &ObligationCap<P>
-    ) {
-        test_scenario::next_tx(scenario, &obligation_owner);
-        {
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-
-            let price_cache_wrapper = test_scenario::take_shared<PriceCache>(scenario);
-            let price_cache = test_scenario::borrow_mut(&mut price_cache_wrapper);
-
-            let price_info = test_scenario::take_child_object<
-                PriceCache, 
-                PriceInfo<T>>(scenario, price_cache);
-
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
-
-            let reserve_info = test_scenario::take_child_object<LendingMarket<P>, ReserveInfo<P, T>>(
-                scenario, lending_market);
-
-            let obligation = test_scenario::take_child_object_by_id<LendingMarket<P>, Obligation<P>>(
-                scenario, lending_market, lending_market::obligation_id(obligation_cap));
-
-            let borrow_info = test_scenario::take_child_object<
-                Obligation<P>, 
-                BorrowInfo<T>>(scenario, &mut obligation);
-            
-            lending_market::update_stats_borrow(
-                lending_market,
-                &mut reserve_info,
-                &mut obligation,
-                &mut borrow_info,
-                time,
-                &price_info,
-                test_scenario::ctx(scenario)
-            );
-
-            test_scenario::return_owned(scenario, borrow_info);
-            test_scenario::return_owned(scenario, obligation);
-
-            test_scenario::return_owned(scenario, price_info);
-            test_scenario::return_shared(scenario, price_cache_wrapper);
-
-            test_scenario::return_owned(scenario, reserve_info);
-            test_scenario::return_shared(scenario, time_wrapper);
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-        };
-    }
-    
-    public fun create_price_cache(scenario: &mut Scenario, owner: address) {
-        test_scenario::next_tx(scenario, &owner);
-        {
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-
-            oracle::new_price_cache(time, test_scenario::ctx(scenario));
-
-            test_scenario::return_shared(scenario, time_wrapper);
-        };
-    }
-    
     public fun create_lending_market<P: drop>(scenario: &mut Scenario, witness: P, owner: address) {
-        test_scenario::next_tx(scenario, &owner);
+        test_scenario::next_tx(scenario, owner);
         {
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-
-            let price_cache_wrapper = test_scenario::take_shared<PriceCache>(scenario);
-            let price_cache = test_scenario::borrow_mut(&mut price_cache_wrapper);
+            let time = test_scenario::take_shared<Time>(scenario);
+            let price_cache = test_scenario::take_shared<PriceCache>(scenario);
 
             lending_market::create_lending_market<P>(
-                witness, 
-                time, 
-                price_cache, 
+                witness,
+                &time, 
+                &price_cache, 
                 test_scenario::ctx(scenario)
             );
 
-            test_scenario::return_shared(scenario, time_wrapper);
-            test_scenario::return_shared(scenario, price_cache_wrapper);
+            test_scenario::return_shared(time);
+            test_scenario::return_shared(price_cache);
         }
     }
     
-    public fun create_time(scenario: &mut Scenario, owner: address, start_time: u64) {
-        test_scenario::next_tx(scenario, &owner);
-        {
-            time::new(start_time, test_scenario::ctx(scenario));
-        }
-    }
     
     public fun add_reserve<P, T>(scenario: &mut Scenario, owner: address) {
-        test_scenario::next_tx(scenario, &owner);
+        test_scenario::next_tx(scenario, owner);
         {
-            let admin_cap = test_scenario::take_owned<AdminCap<P>>(scenario);
+            let admin_cap = test_scenario::take_from_sender<AdminCap<P>>(scenario);
+            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
 
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
+            let time = test_scenario::take_shared<Time>(scenario);
 
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-
-            lending_market::add_reserve<P, T>(&admin_cap, lending_market, time, test_scenario::ctx(scenario));
+            lending_market::add_reserve<P, T>(
+                &admin_cap, 
+                &mut lending_market, 
+                &time, 
+                test_scenario::ctx(scenario)
+            );
             
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-            test_scenario::return_shared(scenario, time_wrapper);
-            test_scenario::return_owned(scenario, admin_cap);
+            test_scenario::return_shared(lending_market);
+            test_scenario::return_shared(time);
+            test_scenario::return_to_sender(scenario, admin_cap);
         }
     }
 
     public fun deposit_reserve_liquidity<P, T>(scenario: &mut Scenario, owner: address, amount: u64): Coin<CToken<P, T>> {
-        test_scenario::next_tx(scenario, &owner);
+        test_scenario::next_tx(scenario, owner);
         {
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
-
-            let reserve_info = test_scenario::take_child_object<LendingMarket<P>, ReserveInfo<P, T>>(
-                scenario, lending_market);
-
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-            
+            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let time = test_scenario::take_shared<Time>(scenario);
             let money = coin::mint_for_testing<T>(amount, test_scenario::ctx(scenario));
 
             lending_market::deposit_reserve_liquidity<P, T>(
-                lending_market, 
-                &mut reserve_info, 
+                &mut lending_market, 
                 money, 
-                time,
+                &time,
                 test_scenario::ctx(scenario)
             );
             
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-            test_scenario::return_shared(scenario, time_wrapper);
-            test_scenario::return_owned(scenario, reserve_info);
+            test_scenario::return_shared(lending_market);
+            test_scenario::return_shared(time);
         };
 
         // verify that 100 ctokens were minted
-        test_scenario::next_tx(scenario, &owner);
-        test_scenario::take_owned<Coin<CToken<P, T>>>(scenario)
+        test_scenario::next_tx(scenario, owner);
+        test_scenario::take_from_sender<Coin<CToken<P, T>>>(scenario)
     }
-    
-    public fun create_obligation<P>(scenario: &mut Scenario, owner: address): ObligationCap<P> {
-        test_scenario::next_tx(scenario, &owner);
+
+
+   public fun create_stats<P>(
+        scenario: &mut Scenario,
+        obligation_owner: address,
+        obligation_cap: &ObligationCap<P>
+    ): Stats {
+        test_scenario::next_tx(scenario, obligation_owner);
         {
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
+            let time = test_scenario::take_shared<Time>(scenario);
+            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let stats = lending_market::create_stats(
+                &lending_market,
+                obligation_cap,
+                &time
+            );
 
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
+
+            test_scenario::return_shared(time);
+            test_scenario::return_shared(lending_market);
+            stats
+        }
+    }
+
+    public fun update_stats<P, T>(
+        scenario: &mut Scenario,
+        stats: &mut Stats,
+        obligation_owner: address,
+        obligation_cap: &ObligationCap<P>
+    ) {
+        test_scenario::next_tx(scenario, obligation_owner);
+        {
+            let time = test_scenario::take_shared<Time>(scenario);
+            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let price_cache = test_scenario::take_shared<PriceCache>(scenario);
+
+            lending_market::update_stats<P, T>(
+                &mut lending_market,
+                obligation_cap,
+                stats,
+                &time,
+                &price_cache
+            );
+
+            test_scenario::return_shared(time);
+            test_scenario::return_shared(lending_market);
+            test_scenario::return_shared(price_cache);
+        }
+    }
+     
+    public fun create_obligation<P>(scenario: &mut Scenario, owner: address): ObligationCap<P> {
+        test_scenario::next_tx(scenario, owner);
+        {
+            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let time = test_scenario::take_shared<Time>(scenario);
             
-            lending_market::create_obligation<P>(lending_market, time, test_scenario::ctx(scenario));
+            lending_market::create_obligation<P>(
+                &mut lending_market, 
+                &time, 
+                test_scenario::ctx(scenario)
+            );
 
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-            test_scenario::return_shared(scenario, time_wrapper);
+            test_scenario::return_shared(lending_market);
+            test_scenario::return_shared(time);
         };
         
-        test_scenario::next_tx(scenario, &owner);
+        test_scenario::next_tx(scenario, owner);
         {
-            test_scenario::take_last_created_owned<ObligationCap<P>>(scenario)
-        }
-    }
-    
-    public fun get_obligation<P>(
-        scenario: &mut Scenario,
-        owner: address,
-        obligation_cap: &ObligationCap<P>
-    ): Obligation<P> {
-        test_scenario::next_tx(scenario, &owner); 
-        {
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
-            let obligation = test_scenario::take_child_object_by_id<LendingMarket<P>, Obligation<P>>(
-                scenario, lending_market, lending_market::obligation_id(obligation_cap));
-            
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-            
-            obligation
-        }
-    }
-
-    public fun add_deposit_info_to_obligation<P, T>(
-        scenario: &mut Scenario, 
-        owner: address, 
-        obligation_cap: &ObligationCap<P>
-    ) {
-        test_scenario::next_tx(scenario, &owner); 
-        {
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
-
-            let obligation = test_scenario::take_child_object_by_id<LendingMarket<P>, Obligation<P>>(
-                scenario, lending_market, lending_market::obligation_id(obligation_cap));
-            
-            lending_market::add_deposit_info_to_obligation<P, CToken<P, T>>(
-                lending_market,
-                &mut obligation,
-                test_scenario::ctx(scenario)
-            );
-
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-            test_scenario::return_owned(scenario, obligation);
-        };
-    }
-
-    public fun add_borrow_info_to_obligation<P, T>(
-        scenario: &mut Scenario, 
-        owner: address,
-        obligation_cap: &ObligationCap<P>
-    ) {
-        test_scenario::next_tx(scenario, &owner); 
-        {
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
-
-            let obligation = test_scenario::take_child_object_by_id<LendingMarket<P>, Obligation<P>>(
+            let obligation_cap_id = test_scenario::most_recent_id_for_sender<ObligationCap<P>>(scenario);
+            test_scenario::take_from_sender_by_id<ObligationCap<P>>(
                 scenario, 
-                lending_market, 
-                lending_market::obligation_id(obligation_cap)
-            );
-            
-            lending_market::add_borrow_info_to_obligation<P, T>(
-                lending_market,
-                &mut obligation,
-                test_scenario::ctx(scenario)
-            );
-
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-            test_scenario::return_owned(scenario, obligation);
-        };
+                option::extract(&mut obligation_cap_id)
+            )
+        }
     }
     
     public fun deposit_ctokens_into_obligation<P, T>(
@@ -415,42 +239,21 @@ module suilend::test_helpers {
         obligation_cap: &ObligationCap<P>,
         ctokens: Coin<CToken<P, T>>
     ) {
-        test_scenario::next_tx(scenario, &owner);
+        test_scenario::next_tx(scenario, owner);
         {
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
+            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let time = test_scenario::take_shared<Time>(scenario);
 
-            let reserve_info = test_scenario::take_child_object<LendingMarket<P>, ReserveInfo<P, T>>(
-                scenario, lending_market);
-
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-
-            let obligation = test_scenario::take_child_object_by_id<LendingMarket<P>, Obligation<P>>(
-                scenario, 
-                lending_market, 
-                lending_market::obligation_id(obligation_cap)
-            );
-
-            let deposit_info = test_scenario::take_child_object<
-                Obligation<P>, 
-                DepositInfo<CToken<P, T>>>(scenario, &mut obligation);
-                
             lending_market::deposit_ctokens(
-                lending_market,
-                &reserve_info,
-                &mut obligation,
-                &mut deposit_info,
-                time,
+                &mut lending_market,
+                obligation_cap,
+                &time,
                 ctokens,
                 test_scenario::ctx(scenario)
             );
 
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-            test_scenario::return_shared(scenario, time_wrapper);
-            test_scenario::return_owned(scenario, obligation);
-            test_scenario::return_owned(scenario, deposit_info);
-            test_scenario::return_owned(scenario, reserve_info);
+            test_scenario::return_shared(lending_market);
+            test_scenario::return_shared(time);
         }
     }
 
@@ -458,55 +261,24 @@ module suilend::test_helpers {
         scenario: &mut Scenario, 
         owner: address, 
         obligation_cap: &ObligationCap<P>,
+        stats: Stats,
         repay_amount: Coin<T>
     ) {
-        test_scenario::next_tx(scenario, &owner);
+        test_scenario::next_tx(scenario, owner);
         {
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
+            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let time = test_scenario::take_shared<Time>(scenario);
 
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-
-            let obligation = test_scenario::take_child_object_by_id<LendingMarket<P>, Obligation<P>>(
-                scenario, 
-                lending_market, 
-                lending_market::obligation_id(obligation_cap)
-            );
-
-            let reserve_info = test_scenario::take_child_object<LendingMarket<P>, ReserveInfo<P, T>>(
-                scenario, lending_market);
-
-            let borrow_info = test_scenario::take_child_object<
-                Obligation<P>, 
-                BorrowInfo<T>>(scenario, &mut obligation);
-
-            let price_cache_wrapper = test_scenario::take_shared<PriceCache>(scenario);
-            let price_cache = test_scenario::borrow_mut(&mut price_cache_wrapper);
-
-            let price_info = test_scenario::take_child_object<
-                PriceCache, 
-                PriceInfo<T>>(scenario, price_cache);
-                
-            lending_market::repay(
-                lending_market,
-                &mut reserve_info,
-                &mut obligation,
-                &mut borrow_info,
-                time,
-                &price_info,
+            lending_market::repay<P, T>(
+                &mut lending_market,
+                obligation_cap,
+                stats,
+                &time,
                 repay_amount,
-                test_scenario::ctx(scenario)
             );
 
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-            test_scenario::return_shared(scenario, time_wrapper);
-            test_scenario::return_shared(scenario, price_cache_wrapper);
-
-            test_scenario::return_owned(scenario, price_info);
-            test_scenario::return_owned(scenario, obligation);
-            test_scenario::return_owned(scenario, borrow_info);
-            test_scenario::return_owned(scenario, reserve_info);
+            test_scenario::return_shared(lending_market);
+            test_scenario::return_shared(time);
         };
     }
 
@@ -514,187 +286,102 @@ module suilend::test_helpers {
         scenario: &mut Scenario, 
         owner: address, 
         obligation_cap: &ObligationCap<P>,
+        stats: Stats,
         borrow_amount: u64
     ): Coin<T> {
-        test_scenario::next_tx(scenario, &owner);
+        test_scenario::next_tx(scenario, owner);
         {
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
+            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let time = test_scenario::take_shared<Time>(scenario);
+            let price_cache = test_scenario::take_shared<PriceCache>(scenario);
 
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-
-            let obligation = test_scenario::take_child_object_by_id<LendingMarket<P>, Obligation<P>>(
-                scenario, 
-                lending_market, 
-                lending_market::obligation_id(obligation_cap)
-            );
-
-            let reserve_info = test_scenario::take_child_object<LendingMarket<P>, ReserveInfo<P, T>>(
-                scenario, lending_market);
-
-            let borrow_info = test_scenario::take_child_object<
-                Obligation<P>, 
-                BorrowInfo<T>>(scenario, &mut obligation);
-
-            let price_cache_wrapper = test_scenario::take_shared<PriceCache>(scenario);
-            let price_cache = test_scenario::borrow_mut(&mut price_cache_wrapper);
-
-            let price_info = test_scenario::take_child_object<
-                PriceCache, 
-                PriceInfo<T>>(scenario, price_cache);
-                
-            lending_market::borrow(
-                lending_market,
-                &mut reserve_info,
-                &mut obligation,
-                &mut borrow_info,
-                time,
-                &price_info,
+            lending_market::borrow<P, T>(
+                &mut lending_market,
+                obligation_cap,
+                stats,
+                &time,
+                &price_cache,
                 borrow_amount,
                 test_scenario::ctx(scenario)
             );
 
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-            test_scenario::return_shared(scenario, time_wrapper);
-            test_scenario::return_shared(scenario, price_cache_wrapper);
-
-            test_scenario::return_owned(scenario, price_info);
-            test_scenario::return_owned(scenario, obligation);
-            test_scenario::return_owned(scenario, borrow_info);
-            test_scenario::return_owned(scenario, reserve_info);
+            test_scenario::return_shared(lending_market);
+            test_scenario::return_shared(time);
+            test_scenario::return_shared(price_cache);
         };
 
-        test_scenario::next_tx(scenario, &owner);
-        test_scenario::take_last_created_owned<Coin<T>>(scenario)
+        test_scenario::next_tx(scenario, owner);
+        let coins_id = test_scenario::most_recent_id_for_sender<Coin<T>>(scenario);
+        test_scenario::take_from_sender_by_id<Coin<T>>(scenario, option::extract(&mut coins_id))
     }
 
     public fun withdraw<P, T>(
         scenario: &mut Scenario, 
         owner: address, 
         obligation_cap: &ObligationCap<P>,
+        stats: Stats,
         withdraw_amount: u64
     ): Coin<CToken<P, T>> {
-        test_scenario::next_tx(scenario, &owner);
+        test_scenario::next_tx(scenario, owner);
         {
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
+            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let time = test_scenario::take_shared<Time>(scenario);
+            let price_cache = test_scenario::take_shared<PriceCache>(scenario);
 
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-
-            let obligation = test_scenario::take_child_object_by_id<LendingMarket<P>, Obligation<P>>(
-                scenario, 
-                lending_market, 
-                lending_market::obligation_id(obligation_cap)
-            );
-
-            let reserve_info = test_scenario::take_child_object<LendingMarket<P>, ReserveInfo<P, T>>(
-                scenario, lending_market);
-
-            let deposit_info = test_scenario::take_child_object<
-                Obligation<P>, 
-                DepositInfo<CToken<P,T>>>(scenario, &mut obligation);
-
-            let price_cache_wrapper = test_scenario::take_shared<PriceCache>(scenario);
-            let price_cache = test_scenario::borrow_mut(&mut price_cache_wrapper);
-
-            let price_info = test_scenario::take_child_object<
-                PriceCache, 
-                PriceInfo<T>>(scenario, price_cache);
-                
-            lending_market::withdraw(
-                lending_market,
-                &mut reserve_info,
-                &mut obligation,
-                &mut deposit_info,
-                time,
-                &price_info,
+            lending_market::withdraw<P, T>(
+                &mut lending_market,
+                obligation_cap,
+                stats,
+                &time,
+                &price_cache,
                 withdraw_amount,
                 test_scenario::ctx(scenario)
             );
 
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-            test_scenario::return_shared(scenario, time_wrapper);
-            test_scenario::return_shared(scenario, price_cache_wrapper);
-
-            test_scenario::return_owned(scenario, price_info);
-            test_scenario::return_owned(scenario, obligation);
-            test_scenario::return_owned(scenario, deposit_info);
-            test_scenario::return_owned(scenario, reserve_info);
+            test_scenario::return_shared(lending_market);
+            test_scenario::return_shared(time);
+            test_scenario::return_shared(price_cache);
         };
 
-        test_scenario::next_tx(scenario, &owner);
-        test_scenario::take_last_created_owned<Coin<CToken<P, T>>>(scenario)
+        test_scenario::next_tx(scenario, owner);
+        let coins_id = test_scenario::most_recent_id_for_sender<Coin<CToken<P,T>>>(scenario);
+        test_scenario::take_from_sender_by_id<Coin<CToken<P, T>>>(
+            scenario, option::extract(&mut coins_id))
     }
 
-    public fun liquidate<P, T1, T2>(
+    public fun liquidate<P, Debt, Collateral>(
         scenario: &mut Scenario, 
-        liquidator: address,
-        violator_obligation_cap: &ObligationCap<P>, 
-        liquidator_obligation_cap: &ObligationCap<P>
-    ) {
-        test_scenario::next_tx(scenario, &liquidator);
+        liquidator: address, 
+        obligation_id: ID,
+        stats: Stats,
+        repay_amount: Coin<Debt>
+    ): Coin<CToken<P, Collateral>> {
+        test_scenario::next_tx(scenario, liquidator);
         {
-            let lending_market_wrapper = test_scenario::take_shared<LendingMarket<P>>(scenario);
-            let lending_market = test_scenario::borrow_mut(&mut lending_market_wrapper);
+            let lending_market = test_scenario::take_shared<LendingMarket<P>>(scenario);
+            let time = test_scenario::take_shared<Time>(scenario);
+            let price_cache = test_scenario::take_shared<PriceCache>(scenario);
 
-            let time_wrapper = test_scenario::take_shared<Time>(scenario);
-            let time = test_scenario::borrow_mut(&mut time_wrapper);
-
-            let violator_obligation = test_scenario::take_child_object_by_id<
-                LendingMarket<P>, Obligation<P>>(
-                scenario, 
-                lending_market, 
-                lending_market::obligation_id(violator_obligation_cap)
-            );
-
-            let liquidator_obligation = test_scenario::take_child_object_by_id<
-                LendingMarket<P>, Obligation<P>>(
-                scenario, 
-                lending_market, 
-                lending_market::obligation_id(liquidator_obligation_cap)
-            );
-
-            let violator_borrow_info = test_scenario::take_child_object<
-                Obligation<P>, 
-                BorrowInfo<T1>>(scenario, &mut violator_obligation);
-
-            let liquidator_borrow_info = test_scenario::take_child_object<
-                Obligation<P>, 
-                BorrowInfo<T1>>(scenario, &mut liquidator_obligation);
-
-            let violator_deposit_info = test_scenario::take_child_object<
-                Obligation<P>, 
-                DepositInfo<CToken<P,T2>>>(scenario, &mut violator_obligation);
-
-            let liquidator_deposit_info = test_scenario::take_child_object<
-                Obligation<P>, 
-                DepositInfo<CToken<P,T2>>>(scenario, &mut liquidator_obligation);
-            
-
-            lending_market::liquidate<P, T1, T2>(
-                lending_market,
-                &mut violator_obligation,
-                &mut violator_borrow_info,
-                &mut violator_deposit_info,
-                &mut liquidator_obligation,
-                &mut liquidator_borrow_info,
-                &mut liquidator_deposit_info,
-                time,
+            lending_market::liquidate<P, Debt, Collateral>(
+                &mut lending_market,
+                obligation_id,
+                stats,
+                repay_amount,
+                &time,
+                &price_cache,
                 test_scenario::ctx(scenario)
             );
 
-            test_scenario::return_shared(scenario, lending_market_wrapper);
-            test_scenario::return_shared(scenario, time_wrapper);
+            test_scenario::return_shared(lending_market);
+            test_scenario::return_shared(time);
+            test_scenario::return_shared(price_cache);
+        };
 
-            test_scenario::return_owned(scenario, violator_obligation);
-            test_scenario::return_owned(scenario, liquidator_obligation);
-            test_scenario::return_owned(scenario, violator_borrow_info);
-            test_scenario::return_owned(scenario, violator_deposit_info);
-            test_scenario::return_owned(scenario, liquidator_borrow_info);
-            test_scenario::return_owned(scenario, liquidator_deposit_info);
-        }
+        test_scenario::next_tx(scenario, liquidator);
+
+        let coins_id = test_scenario::most_recent_id_for_sender<Coin<CToken<P,Collateral>>>(scenario);
+        test_scenario::take_from_sender_by_id<Coin<CToken<P, Collateral>>>(
+            scenario, option::extract(&mut coins_id))
     }
     
 }
