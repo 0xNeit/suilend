@@ -48,7 +48,7 @@ Where:
 - $C_r$ is the ctoken ratio for reserve $r$
 - $B_r$ is the amount of tokens lent to borrowers for reserve $r$
 - $A_r$ is the amount of available tokens (ie not lent out) for reserve $r$
-- $T_{C_r}$ is the total supply of ctokens.
+- $T_{C_r}$ is the total supply of ctokens in reserve $r$.
 
 $C_r$ starts at 1 when the reserve is initialized, and grows over time. The CToken ratio never decreases.
 
