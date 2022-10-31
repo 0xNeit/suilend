@@ -1,3 +1,5 @@
+The goal of this page is to be a self-contained explanation of the big mathematical concepts involved in building a lending protocol.
+
 # Reserve
 
 For a given lending market, a reserve holds all deposits of a coin type for a given lending market. 
@@ -47,6 +49,9 @@ The USD value of a user's borrows can never exceed the USD value of a user's dep
 
 ## Health
 
+
+### Healthy
+
 An obligation O is healthy if:
 
 $$ \sum_{r}^{M}{B(O, r)} < \sum_{r}^{M}{LTV_{open}(r) * D(O, r)}$$
@@ -58,7 +63,10 @@ Where:
 - $D(O, r)$ is the USD value of obligation O's deposits from reserve $r$
 - $LTV_{open}(r)$ is the open LTV for reserve $r$. ($0 <= LTV_{open}(r) < 1$)
 
-An obligation O is eligible for liquidation if:
+
+### Unhealthy
+
+An obligation O is unhealthy and eligible for liquidation if:
 
 $$ \sum_{r}^{M}{B(O, r)} >= \sum_{r}^{M}{LTV_{close}(r) * D(O, r)}$$
 
@@ -66,17 +74,33 @@ Where:
 - $LTV_{close}(r)$ is the close LTV for reserve $r$. ($0 <= LTV_{close}(r) < 1$)
 
 
-# Calculating interest Rates and compounding debt
+### Underwater 
+
+An obligation O is underwater if:
+
+$$ \sum_{r}^{M}{B(O, r)} > \sum_{r}^{M}{D(O, r)}$$
+
+In this situation, the protocol has picked up bad debt.
+
+# Compounding debt and calculating interest rates
 
 In Suilend, debt is compounded every second. 
 
 Compounded debt is tracked per obligation _and_ per reserve.
 
+This section is a bit complicated and only relevant if you want to understand the source code of the protocol.
+
+## APR (Annual Percentage Rate)
+
+An APR is a representation of the yearly interest paid on your debt, without accounting for compounding. 
+
+In Suilend, the APR is a function of reserve utilization. The exact function is subject to change.
+
+Note that reserve utilization only changes on a borrow or repay action.
+
 ## Compound debt per reserve
 
 $B_r$ from prior formulas (total tokens borrowed in reserve $r$) provides us a convenient way to compound global debt on a per-reserve basis.
-
-To compound debt, we need an APR. In Suilend, the APR is a function of reserve utilization and needs to be recalculated on every borrow/repay action.
 
 The formula below describes how to compound debt on a reserve:
 
@@ -84,18 +108,73 @@ $$B(t=1)_r = B(t=0)_r * (1 + APR(U_r) / Y_{seconds})^1$$
 
 Where:
 - $B(t)_r$ is the total amount of tokens borrowed in reserve $r$ at time $t$.
-- $APR(U_r)$ is the APR for a given utilization value. This function is intentionally not defined here, as it might be subject to change.
+- $APR(U_r)$ is the APR for a given utilization value. 
 - $Y_{seconds}$ is the number of seconds in a year.
 
 Note that even if no additional users borrow tokens after $t=0$, due to compound interest, the borrowed amount will increase over time. 
 
 ## Compound debt per obligation
 
-So, we don't want to compound debt for every obligation on any borrow/repay action. That's really inefficient. So how can we do better?
+This is tricky to do efficiently since the APR can change every second and our borrowed amount can change on every borrow/repay action. Let's work through a simple example first.
 
-TODO
+Lets say the owner of obligation $O$ initially borrows $b$ tokens from reserve $r$ at $t=T_1$. 
+
+What is the compounded debt at $t=T_2$?.
+
+$$b\prod_{t=T_1 + 1}^{T_2}{(1 + APR_r(t)/365)}$$
+Where:
+- $B$ is the amount of tokens borrowed from reserve $r$ at $t=0$.
+- $APR_r(t)$ is the variable APR for reserve $r$ at time $t$.
+
+Lets define a new variable I that accumulates the products.
+
+$$I_r(T) = \prod_{t=1}^{T}{(1 + APR_r(t)/365)}$$
+
+Now, simplifying our first expression:
+
+$$b * I_r(T_2) / I_r(T_1) $$
+
+Note that the term $b / I_r(T_1)$ is effectively normalizing the debt to $t=0$. In other words, if you borrowed $b / I_r(T_1)$ tokens at t=0, your debt at $t=T_1$ would be $b$ after compounding interest.
+
+Each obligation would "snapshot" the latest value of $I_r(t)$ after any action. This is equivalent to $I_r(T_1)$ in the expression above.
+
+$I_r(t)$ can be tracked globally per reserve. This is equivalent to $I_r(T_2)$ in the expression above.
+
+## Compounding debt invariant
+
+At any time T and for any reserve, the following expression is true.
+
+$$B_r = \sum_{o}^{M}{B_r(o) * I_r(T) / I_r(T'(o))}$$
+Where:
+- $B_r$ is the total amount of tokens borrowed in reserve $r$ at time $T$.
+- $B_r(o)$ is the amount of tokens borrowed from reserve $r$ by obligation $O$.
+- $I_r(T)$ is the latest cumulative borrow rate product for reserve $r$.
+- $T'(o)$ is the last time the obligation's debt was compounded.
+
+In other words, the global borrowed amount equals the sum of all borrowed tokens per obligation after compounding.
 
 # Liquidations
+
+Recall that an obligation O is eligible for liquidation if:
+
+$$ \sum_{r}^{M}{B(O, r)} >= \sum_{r}^{M}{LTV_{close}(r) * D(O, r)}$$
+
+Where:
+- $M$ is the lending market
+- $r$ is a reserve in $M$
+- $B(O, r)$ is the USD value of obligation O's borrows from reserve $r$
+- $D(O, r)$ is the USD value of obligation O's deposits from reserve $r$
+- $LTV_{close}(r)$ is the close LTV for reserve $r$. ($0 <= LTV_{close}(r) < 1$)
+
+Say the total value of a user's borrowed (deposited) amount is $B_{usd}$ ($D_{usd}$). The liquidator can repay $B_{usd} * CF$ of debt to receive $B_{usd} * CF * (1 + LB)$ worth of deposits.
+
+Where:
+- $CF$ is the close factor (see parameters section)
+- $LB$ is the liquidation bonus (see parameters section)
+
+Notes:
+- when an obligation is unhealthy but not underwater, the LTV decreases after a liquidation. This is good. 
+- the liquidation bonus (LB) is what makes the liquidation profitable for a liquidator.
 
 # Parameters
 
@@ -110,3 +189,15 @@ Open LTV is less than or equal to 1, and is defined _per_ reserve. This is becau
 Close LTV is a percentage that represents the maximum amount that can be borrowed against a deposit. 
 
 For a given reserve, Close LTV > Open LTV.
+
+## Close Factor (CF)
+
+The Close Factor determines the percentage of an obligation's borrow that can be repaid on liquidation.
+
+Bounds: $0 < CF <= 1$
+
+## Liquidation Bonus (LB)
+
+The liquidation bonus determines the bonus a liquidator gets when they liquidate an obligation. This bonus value is what makes a liquidation profitable for the liquidator.
+
+Bounds: $0 <= LB < 1$
