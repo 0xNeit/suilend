@@ -2,7 +2,7 @@
 /// Various helper functions to abstract away all the object stuff
 module suilend::test_helpers {
     use sui::coin::{Self, Coin};
-    use suilend::time::{Self, Time};
+    use suilend::time::{Self, Time, TimeCap};
     use suilend::reserve::CToken;
     use suilend::lending_market::{
         Self,
@@ -14,7 +14,7 @@ module suilend::test_helpers {
         Stats
     };
     use sui::test_scenario::{Self, Scenario};
-    use suilend::oracle::{Self, PriceCache};
+    use suilend::oracle::{Self, PriceCache, PriceCacheCap};
     use sui::object::{ID};
     use std::option;
 
@@ -30,8 +30,11 @@ module suilend::test_helpers {
         test_scenario::next_tx(scenario, owner);
         {
             let time = test_scenario::take_shared<Time>(scenario);
-            time::update_time(&mut time, new_time, test_scenario::ctx(scenario));
+            let time_cap = test_scenario::take_from_sender<TimeCap>(scenario);
+            time::update_time(&time_cap, &mut time, new_time, test_scenario::ctx(scenario));
+
             test_scenario::return_shared(time);
+            test_scenario::return_to_sender(scenario, time_cap);
         }
     }
     
@@ -56,8 +59,10 @@ module suilend::test_helpers {
         {
             let time = test_scenario::take_shared<Time>(scenario);
             let price_cache = test_scenario::take_shared<PriceCache>(scenario);
+            let price_cache_cap = test_scenario::take_from_sender<PriceCacheCap>(scenario);
             
             oracle::add_price_info<T>(
+                &price_cache_cap,
                 &mut price_cache, 
                 &time,
                 price_base,
@@ -68,6 +73,7 @@ module suilend::test_helpers {
             
             test_scenario::return_shared(time);
             test_scenario::return_shared(price_cache);
+            test_scenario::return_to_sender(scenario, price_cache_cap);
         }
     }
 
@@ -81,8 +87,10 @@ module suilend::test_helpers {
         {
             let time = test_scenario::take_shared<Time>(scenario);
             let price_cache = test_scenario::take_shared<PriceCache>(scenario);
+            let price_cache_cap = test_scenario::take_from_sender<PriceCacheCap>(scenario);
 
             oracle::update_price<T>(
+                &price_cache_cap,
                 &mut price_cache,
                 &time,
                 price_base,
@@ -92,6 +100,7 @@ module suilend::test_helpers {
             
             test_scenario::return_shared(time);
             test_scenario::return_shared(price_cache);
+            test_scenario::return_to_sender(scenario, price_cache_cap);
         }
     }
 

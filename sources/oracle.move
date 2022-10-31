@@ -10,9 +10,13 @@ module suilend::oracle {
 
     struct PriceCache has key, store {
         id: UID,
-        owner: address,
         time_id: ID,
         prices: ObjectBag
+    }
+    
+    struct PriceCacheCap has key, store {
+        id: UID,
+        price_cache_id: ID
     }
     
     // USD price of 1 whole token.
@@ -37,30 +41,33 @@ module suilend::oracle {
     const EInvalidTime: u64 = 1;
     const EInvalidPriceInfo: u64 = 2;
 
-    public fun create(time: &Time, ctx: &mut TxContext): PriceCache {
-        PriceCache {
-            id: object::new(ctx),
-            owner: tx_context::sender(ctx),
-            time_id: object::id(time),
-            prices: object_bag::new(ctx),
-        }
-    }
-
-    public entry fun new_price_cache(time: &Time, ctx: &mut TxContext) {
+    public fun create(time: &Time, ctx: &mut TxContext): (PriceCache, PriceCacheCap) {
         let price_cache = PriceCache {
             id: object::new(ctx),
-            owner: tx_context::sender(ctx),
             time_id: object::id(time),
             prices: object_bag::new(ctx),
         };
-        
+
+        let price_cache_cap = PriceCacheCap {
+            id: object::new(ctx),
+            price_cache_id: object::id(&price_cache)
+        };
+
+        (price_cache, price_cache_cap)
+    }
+
+    public entry fun new_price_cache(time: &Time, ctx: &mut TxContext) {
+        let (price_cache, price_cache_cap) = create(time, ctx);
+
         transfer::share_object(price_cache);
+        transfer::transfer(price_cache_cap, tx_context::sender(ctx));
     }
 
     // used as key to object bag
     struct Name<phantom T> has copy, drop, store {}
 
     public entry fun add_price_info<T>(
+        price_cache_cap: &PriceCacheCap,
         price_cache: &mut PriceCache,
         time: &Time, 
         base: u64, 
@@ -68,7 +75,7 @@ module suilend::oracle {
         decimals: u64,
         ctx: &mut TxContext
     ) {
-        assert!(tx_context::sender(ctx) == price_cache.owner, EUnauthorized);
+        assert!(price_cache_cap.price_cache_id == object::id(price_cache), EUnauthorized);
         assert!(price_cache.time_id == object::id(time), EInvalidTime);
 
         let price_info = PriceInfo<T> {
@@ -84,13 +91,14 @@ module suilend::oracle {
     }
     
     public entry fun update_price<T>(
+        price_cache_cap: &PriceCacheCap,
         price_cache: &mut PriceCache,
         time: &Time, 
         base: u64, 
         exp: u64, 
-        ctx: &mut TxContext
+        _ctx: &mut TxContext
     ) {
-        assert!(tx_context::sender(ctx) == price_cache.owner, EUnauthorized);
+        assert!(price_cache_cap.price_cache_id == object::id(price_cache), EUnauthorized);
         assert!(price_cache.time_id == object::id(time), EInvalidTime);
         
         let price_info: &mut PriceInfo<T> = object_bag::borrow_mut(&mut price_cache.prices, Name<T>{ });
