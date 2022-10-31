@@ -21,9 +21,60 @@ Example: Say I (ripleys) deposit 100 USDC into Suilend, and Soju (our bd guy) de
 
 The reserve utilization on the USDC reserve is $50 / (50 + 50)$ = 50%.
 
-## Calculating interest Rates and compounding debt
+## CTokens
 
-In Suilend, debt is compounded every second. $B_r$ from prior formulas (total tokens borrowed in reserve $r$) provides us a convenient way to compound global debt on a per-reserve basis.
+When a user deposits SUI into Suilend, they will mint (ie get back) CSUI. This CSUI entitles the user to obtain their deposit from Suilend + additional interest. The interest is obtained by lending out the tokens to borrowers.
+
+The CToken ratio denotes the exchange rate between the CToken and its underlying asset. Formally, the ctoken ratio is calculated by:
+$$C_r = (B_r + A_r) / T_{C_r}$$
+
+Where:
+- $C_r$ is the ctoken ratio for reserve $r$
+- $B_r$ is the amount of tokens lent to borrowers for reserve $r$ (including interest)
+- $A_r$ is the amount of available tokens (ie not lent out) for reserve $r$
+- $T_{C_r}$ is the total supply of ctokens in reserve $r$.
+
+$C_r$ starts at 1 when the reserve is initialized, and grows over time. The CToken ratio never decreases.
+
+Note that a user cannot always exchange their CSUI back to SUI. In a worst case scenario, all deposited SUI could be lent out, so the protocol won't have any left for redemption. However, in this scenario, the interest rates will skyrocket, incentivizing new depositors and also incentivizing borrowers to pay back their debts.
+
+
+# Obligations
+
+An obligation tracks a user's deposits and borrows in a given lending market.
+
+The USD value of a user's borrows can never exceed the USD value of a user's deposits. Otherwise, the protocol can pick up bad debt!
+
+## Health
+
+An obligation O is healthy if:
+
+$$ \sum_{r}^{M}{B(O, r)} < \sum_{r}^{M}{LTV_{open}(r) * D(O, r)}$$
+
+Where:
+- $M$ is the lending market
+- $r$ is a reserve in $M$
+- $B(O, r)$ is the USD value of obligation O's borrows from reserve $r$
+- $D(O, r)$ is the USD value of obligation O's deposits from reserve $r$
+- $LTV_{open}(r)$ is the open LTV for reserve $r$. ($0 <= LTV_{open}(r) < 1$)
+
+An obligation O is eligible for liquidation if:
+
+$$ \sum_{r}^{M}{B(O, r)} >= \sum_{r}^{M}{LTV_{close}(r) * D(O, r)}$$
+
+Where:
+- $LTV_{close}(r)$ is the close LTV for reserve $r$. ($0 <= LTV_{close}(r) < 1$)
+
+
+# Calculating interest Rates and compounding debt
+
+In Suilend, debt is compounded every second. 
+
+Compounded debt is tracked per obligation _and_ per reserve.
+
+## Compound debt per reserve
+
+$B_r$ from prior formulas (total tokens borrowed in reserve $r$) provides us a convenient way to compound global debt on a per-reserve basis.
 
 To compound debt, we need an APR. In Suilend, the APR is a function of reserve utilization and needs to be recalculated on every borrow/repay action.
 
@@ -38,35 +89,24 @@ Where:
 
 Note that even if no additional users borrow tokens after $t=0$, due to compound interest, the borrowed amount will increase over time. 
 
-## CTokens
+## Compound debt per obligation
 
-When a user deposits SUI into Suilend, they will mint (ie get back) CSUI. This CSUI entitles the user to obtain their deposit from Suilend + additional interest. The interest is obtained by lending out the tokens to borrowers.
+So, we don't want to compound debt for every obligation on any borrow/repay action. That's really inefficient. So how can we do better?
 
-The CToken ratio denotes the exchange rate between the CToken and its underlying asset. Formally, the ctoken ratio is calculated by:
-$$C_r = (B_r + A_r) / T_{C_r}$$
+TODO
 
-Where:
-- $C_r$ is the ctoken ratio for reserve $r$
-- $B_r$ is the amount of tokens lent to borrowers for reserve $r$
-- $A_r$ is the amount of available tokens (ie not lent out) for reserve $r$
-- $T_{C_r}$ is the total supply of ctokens in reserve $r$.
+# Liquidations
 
-$C_r$ starts at 1 when the reserve is initialized, and grows over time. The CToken ratio never decreases.
+# Parameters
 
-Note that a user cannot always exchange their CSUI back to SUI. In a worst case scenario, all deposited SUI could be lent out, so the protocol won't have any left for redemption. However, in this scenario, the interest rates will skyrocket, incentivizing new depositors and also incentivizing borrowers to pay back their debts.
+## Open LTV (Loan-to-value)
 
-## Parameters
-
-# Open LTV (Loan-to-value)
-
-Open LTV is a percentage that limits how much can be _initially_ borrowed against a deposit. 
+Open LTV is a percentage that limits how much can be _initially_ borrowed against a deposit.
 
 Open LTV is less than or equal to 1, and is defined _per_ reserve. This is because some tokens are more risky than others. For example, using USDC as collateral is much safer than using DOGE.
 
-# Close LTV
+## Close LTV
 
-Close LTV is a percentage that represents the maximum amount that can be borrowed against a deposit. If the borrowed value exceeds this
+Close LTV is a percentage that represents the maximum amount that can be borrowed against a deposit. 
 
-# Obligations
-
-An obligation is a representation of a user's deposits and borrows in Suilend.
+For a given reserve, Close LTV > Open LTV.
