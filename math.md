@@ -36,10 +36,11 @@ Where:
 - $A_r$ is the amount of available tokens (ie not lent out) for reserve $r$
 - $T_{C_r}$ is the total supply of ctokens in reserve $r$.
 
-$C_r$ starts at 1 when the reserve is initialized, and grows over time. The CToken ratio never decreases.
 
-Note that a user cannot always exchange their CSUI back to SUI. In a worst case scenario, all deposited SUI could be lent out, so the protocol won't have any left for redemption. However, in this scenario, the interest rates will skyrocket, incentivizing new depositors and also incentivizing borrowers to pay back their debts.
-
+Notes:
+- $C_r$ starts at 1 when the reserve is initialized, and grows over time. The CToken ratio never decreases.
+- a user cannot always exchange their CSUI back to SUI. In a worst case scenario, all deposited SUI could be lent out, so the protocol won't have any left for redemption. However, in this scenario, the interest rates will skyrocket, incentivizing new depositors and also incentivizing borrowers to pay back their debts.
+- the ctoken ratio captures the interest earned by a deposit.
 
 # Obligations
 
@@ -47,8 +48,7 @@ An obligation tracks a user's deposits and borrows in a given lending market.
 
 The USD value of a user's borrows can never exceed the USD value of a user's deposits. Otherwise, the protocol can pick up bad debt!
 
-## Health
-
+## Obligation statuses
 
 ### Healthy
 
@@ -73,7 +73,6 @@ $$ \sum_{r}^{M}{B(O, r)} >= \sum_{r}^{M}{LTV_{close}(r) * D(O, r)}$$
 Where:
 - $LTV_{close}(r)$ is the close LTV for reserve $r$. ($0 <= LTV_{close}(r) < 1$)
 
-
 ### Underwater 
 
 An obligation O is underwater if:
@@ -86,7 +85,7 @@ In this situation, the protocol has picked up bad debt.
 
 In Suilend, debt is compounded every second. 
 
-Compounded debt is tracked per obligation _and_ per reserve.
+Compounded debt is tracked per obligation _and_ per reserve. Debt needs to be tracked per reserve because it affects the ctoken ratio. Debt needs to be tracked per obligation because otherwise users won't pay back their debt!
 
 This section is a bit complicated and only relevant if you want to understand the source code of the protocol.
 
@@ -155,7 +154,7 @@ In other words, the global borrowed amount equals the sum of all borrowed tokens
 
 # Liquidations
 
-Recall that an obligation O is eligible for liquidation if:
+The goal of liquidations is to force repay an unhealthy obligation's debt _before_ it goes underwater. Recall that an obligation O is unhealthy and eligible for liquidation if:
 
 $$ \sum_{r}^{M}{B(O, r)} >= \sum_{r}^{M}{LTV_{close}(r) * D(O, r)}$$
 
