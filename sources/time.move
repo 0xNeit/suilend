@@ -23,6 +23,14 @@ module suilend::time {
         
         transfer::share_object(time);
     }
+
+    public fun create(cur_epoch_time_s: u64, ctx: &mut TxContext): Time {
+        Time {
+            id: object::new(ctx),
+            owner: tx_context::sender(ctx),
+            epoch_time_s: cur_epoch_time_s
+        }
+    }
     
     public entry fun update_time(
         time: &mut Time, 

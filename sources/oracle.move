@@ -8,7 +8,7 @@ module suilend::oracle {
     use sui::tx_context::{Self, TxContext};
     use sui::object_bag::{ObjectBag, Self};
 
-    struct PriceCache has key {
+    struct PriceCache has key, store {
         id: UID,
         owner: address,
         time_id: ID,
@@ -36,6 +36,15 @@ module suilend::oracle {
     const EUnauthorized: u64 = 0;
     const EInvalidTime: u64 = 1;
     const EInvalidPriceInfo: u64 = 2;
+
+    public fun create(time: &Time, ctx: &mut TxContext): PriceCache {
+        PriceCache {
+            id: object::new(ctx),
+            owner: tx_context::sender(ctx),
+            time_id: object::id(time),
+            prices: object_bag::new(ctx),
+        }
+    }
 
     public entry fun new_price_cache(time: &Time, ctx: &mut TxContext) {
         let price_cache = PriceCache {
