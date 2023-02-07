@@ -15,5 +15,4 @@ When a user deposits assets into a reserve, they will receive CTokens.
 The CToken represents the user's ownership of their deposit, and entitles the user to earn interest on their deposit.
 
 # Known issues
-- I left some rounding bugs in a couple places. I haven't implemented floor/ceil correctly in my Decimal module yet.
 - The reserve prover spec is currently broken bc I overhauled my Decimal module. 
